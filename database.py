@@ -3,7 +3,7 @@ import json
 import hashlib
 
 from manager_encryption import EncryptionManager
-from config import DB_NAME
+from config import DB_NAME, PASSWORD_MIN_LENGTH
 
 from utility import timer
 
@@ -233,7 +233,7 @@ class DatabaseHandler:
         if not self.validate_password(old_password):
             raise ValueError("Current password is incorrect.")
             
-        if len(new_password) < 3:
+        if len(new_password) < PASSWORD_MIN_LENGTH:
             raise ValueError("New password must be at least 14 characters.")
             
         try:

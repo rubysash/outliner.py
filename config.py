@@ -2,7 +2,10 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.24"
+
+PASSWORD_MIN_LENGTH = 3
+
+VERSION = "0.25"
 DB_NAME = "outline.db"  # default db it will look for or create
 GLOBAL_FONT_FAMILY = "Helvetica"  # Set the global font family
 GLOBAL_FONT_SIZE = 12  # Set the global font size

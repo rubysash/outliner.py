@@ -27,7 +27,8 @@ from config import (
     H3_SIZE,
     H4_SIZE,
     P_SIZE,
-    INDENT_SIZE
+    INDENT_SIZE,
+    PASSWORD_MIN_LENGTH
 )
 
 class PasswordChangeDialog(tk.Toplevel):
@@ -79,7 +80,7 @@ class PasswordChangeDialog(tk.Toplevel):
             messagebox.showerror("Error", "New passwords do not match.")
             return
             
-        if len(new) < 3:
+        if len(new) < PASSWORD_MIN_LENGTH:
             messagebox.showerror("Error", "New password must be at least 14 characters.")
             return
             
@@ -218,7 +219,7 @@ class OutLineEditorApp:
                     "No password found. Set a new password (min. 14 characters):",
                     show="*",
                 )
-                if not password or len(password) < 3:
+                if not password or len(password) < PASSWORD_MIN_LENGTH:
                     messagebox.showerror("Invalid Password", "Password must be at least 14 characters.")
                     continue
                 self.db.set_password(password)
@@ -1221,7 +1222,7 @@ class OutLineEditorApp:
                 if not password:
                     return  # User cancelled
                     
-                if len(password) < 3:
+                if len(password) < PASSWORD_MIN_LENGTH:
                     messagebox.showerror(
                         "Invalid Password", 
                         "Password must be at least 14 characters long."
