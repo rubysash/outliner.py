@@ -1,1 +1,1 @@
-start cmd /c "Scripts\activate && python outliner.v9.py"
+start cmd /c "Scripts\activate && python outliner.py"
