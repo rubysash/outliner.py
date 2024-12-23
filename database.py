@@ -13,7 +13,19 @@ class DatabaseHandler:
         self.db_name = db_name
         self.conn = sqlite3.connect(self.db_name)
         self.cursor = self.conn.cursor()
+        self._numbering_cache = {}
+        self._children_cache = {}
         self.setup_database()
+        
+        # Add indices for common queries
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sections_parent 
+            ON sections(parent_id, placement)
+        """)
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sections_type 
+            ON sections(type)
+        """)
 
     @timer
     def setup_database(self):
@@ -54,6 +66,72 @@ class DatabaseHandler:
             ("password", hashed_password),
         )
         self.conn.commit()
+
+    @timer
+    def batch_has_children(self, section_ids):
+        """Efficiently check multiple sections for children."""
+        if not section_ids:
+            return {}
+        
+        placeholders = ','.join('?' * len(section_ids))
+        query = f"""
+            SELECT DISTINCT parent_id 
+            FROM sections 
+            WHERE parent_id IN ({placeholders})
+        """
+        self.cursor.execute(query, section_ids)
+        has_children = {id: False for id in section_ids}
+        for (parent_id,) in self.cursor.fetchall():
+            has_children[parent_id] = True
+        return has_children
+
+    @timer
+    def invalidate_caches(self):
+        """Clear caches when structure changes."""
+        self._numbering_cache.clear()
+        self._children_cache.clear()
+
+    @timer
+    def _get_structure_hash(self):
+        """Generate a hash representing the current tree structure."""
+        self.cursor.execute("""
+            SELECT id, parent_id, placement 
+            FROM sections 
+            ORDER BY id
+        """)
+        structure = self.cursor.fetchall()
+        return hash(str(structure))
+
+    @timer
+    def generate_numbering(self):
+        """Generate numbering with caching."""
+        cache_key = self._get_structure_hash()  # Hash of current structure
+        if cache_key in self._numbering_cache:
+            return self._numbering_cache[cache_key]
+
+        numbering_dict = {}
+        def recursive_numbering(parent_id=None, prefix=""):
+            if parent_id in self._children_cache:
+                children = self._children_cache[parent_id]
+            else:
+                self.cursor.execute("""
+                    SELECT id, placement 
+                    FROM sections 
+                    WHERE parent_id IS ? 
+                    ORDER BY placement, id
+                """, (parent_id,))
+                children = self.cursor.fetchall()
+                self._children_cache[parent_id] = children
+
+            for idx, (child_id, _) in enumerate(children, start=1):
+                number = f"{prefix}{idx}"
+                numbering_dict[child_id] = number
+                recursive_numbering(child_id, f"{number}.")
+
+        recursive_numbering()
+        self._numbering_cache[cache_key] = numbering_dict
+        return numbering_dict
+
 
     @timer
     def has_children(self, section_id):
@@ -376,40 +454,6 @@ class DatabaseHandler:
         except Exception as e:
             print(f"Error in search_sections: {e}")
             return set(), set()
-
-    @timer
-    def generate_numbering(self):
-        """
-        Generate numbering for all sections based on the database hierarchy.
-        """
-        numbering_dict = {}
-
-        def recursive_numbering(parent_id=None, prefix=""):
-            try:
-                # Fetch children based on parent_id
-                if parent_id is None:
-                    self.cursor.execute("""
-                        SELECT id, placement FROM sections 
-                        WHERE parent_id IS NULL 
-                        ORDER BY placement, id
-                    """)
-                else:
-                    self.cursor.execute("""
-                        SELECT id, placement FROM sections 
-                        WHERE parent_id = ? 
-                        ORDER BY placement, id
-                    """, (parent_id,))
-
-                children = self.cursor.fetchall()
-                for idx, (child_id, _) in enumerate(children, start=1):
-                    number = f"{prefix}{idx}"
-                    numbering_dict[child_id] = number
-                    recursive_numbering(child_id, f"{number}.")
-            except Exception as e:
-                print(f"Error in generate_numbering: {e}")
-
-        recursive_numbering()  # Start numbering from the root
-        return numbering_dict
 
     def clean_parent_ids(self):
         """Update any parent_id values that are empty strings to NULL."""

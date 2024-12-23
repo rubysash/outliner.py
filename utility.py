@@ -39,7 +39,7 @@ def timer(func):
             f"{f' | {class_name}' if class_name else ''}"
             f" | {function_name}{Style.RESET_ALL}"
         )
-        if runtime_ms > .02:
+        if runtime_ms > 1:
             print(output)
 
         return result
