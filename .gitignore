@@ -10,6 +10,7 @@ Scripts/
 
 # existing dbs
 dbs/
+*.db
 
 # Environment variables
 .env
