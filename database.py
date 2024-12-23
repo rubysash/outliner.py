@@ -5,6 +5,7 @@ import hashlib
 from manager_encryption import EncryptionManager
 from config import DB_NAME
 
+from utility import timer
 
 class DatabaseHandler:
     def __init__(self, db_name=DB_NAME, encryption_manager=None):
@@ -14,6 +15,7 @@ class DatabaseHandler:
         self.cursor = self.conn.cursor()
         self.setup_database()
 
+    @timer
     def setup_database(self):
         """
         Initialize the database schema, including sections and settings tables.
@@ -44,6 +46,7 @@ class DatabaseHandler:
         
         self.conn.commit()
 
+    @timer
     def set_password(self, password):
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
         self.cursor.execute(
@@ -52,13 +55,15 @@ class DatabaseHandler:
         )
         self.conn.commit()
 
+    @timer
     def has_children(self, section_id):
-        """Check if a section has child sections."""
-        self.cursor.execute(
-            "SELECT COUNT(*) FROM sections WHERE parent_id = ?", (section_id,)
-        )
-        return self.cursor.fetchone()[0] > 0
+        """
+        Check if a section has child sections.
+        """
+        self.cursor.execute("SELECT 1 FROM sections WHERE parent_id = ? LIMIT 1", (section_id,))
+        return self.cursor.fetchone() is not None
 
+    @timer
     def load_children(self, parent_id=None):
         """
         Load child sections of a given parent ID from the database.
@@ -70,18 +75,46 @@ class DatabaseHandler:
         try:
             if parent_id is None:
                 self.cursor.execute(
-                    "SELECT id, title, parent_id FROM sections WHERE parent_id IS NULL ORDER BY placement, id"
+                    """
+                    SELECT id, title, parent_id 
+                    FROM sections 
+                    WHERE parent_id IS NULL 
+                    AND title IS NOT NULL 
+                    AND title != ''
+                    ORDER BY placement, id
+                    """
                 )
             else:
                 self.cursor.execute(
-                    "SELECT id, title, parent_id FROM sections WHERE parent_id = ? ORDER BY placement, id",
+                    """
+                    SELECT id, title, parent_id 
+                    FROM sections 
+                    WHERE parent_id = ? 
+                    AND title IS NOT NULL 
+                    AND title != ''
+                    ORDER BY placement, id
+                    """,
                     (parent_id,),
                 )
-            return self.cursor.fetchall()
+                
+            results = self.cursor.fetchall()
+            
+            # Additional validation to ensure no empty records are returned
+            validated_results = []
+            for id, title, parent_id in results:
+                if id is not None and title is not None:
+                    # For encrypted titles, we need to check the content exists
+                    if isinstance(title, str) and not title.strip():
+                        continue
+                    validated_results.append((id, title, parent_id))
+                    
+            return validated_results
+            
         except Exception as e:
             print(f"Error in load_children: {e}")
             return []
 
+    @timer
     def add_section(self, title, section_type, parent_id=None, placement=1):
         """
         Add a new section with encrypted title and default encrypted questions.
@@ -99,6 +132,7 @@ class DatabaseHandler:
         self.conn.commit()
         return self.cursor.lastrowid
 
+    @timer
     def update_section(self, section_id, title, questions):
         encrypted_title = (
             self.encryption_manager.encrypt_string(title) if title else None
@@ -115,6 +149,7 @@ class DatabaseHandler:
         )
         self.conn.commit()
 
+    @timer
     def change_password(self, old_password, new_password):
         """Change the database encryption password with proper re-encryption."""
         if not self.validate_password(old_password):
@@ -201,6 +236,7 @@ class DatabaseHandler:
         except Exception as e:
             raise RuntimeError(f"Failed to reset database: {e}")
 
+    @timer
     def initialize_placement(self):
         """Assign default placement for existing rows if placement is NULL."""
         try:
@@ -232,6 +268,7 @@ class DatabaseHandler:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
 
+    @timer
     def swap_placement(self, item_id1, item_id2):
         """Swap the placement of two items in the database."""
         try:
@@ -277,6 +314,7 @@ class DatabaseHandler:
             print(f"Error in swap_placement: {e}")
             self.conn.rollback()
 
+    @timer
     def fix_placement(self, parent_id):
         """Ensure all children of a parent have sequential placement values."""
         try:
@@ -296,6 +334,7 @@ class DatabaseHandler:
             print(f"Error in fix_placement: {e}")
             self.conn.rollback()
 
+    @timer
     def get_section_type(self, section_id):
         """Fetch the type of a section by its ID."""
         try:
@@ -306,6 +345,7 @@ class DatabaseHandler:
             print(f"Error in get_section_type: {e}")
             return None
 
+    @timer
     def search_sections(self, query):
         """
         Perform a recursive search for sections matching the query in title or questions.
@@ -337,43 +377,30 @@ class DatabaseHandler:
             print(f"Error in search_sections: {e}")
             return set(), set()
 
+    @timer
     def generate_numbering(self):
         """
-        Generate a numbering dictionary for all items based on the database hierarchy.
-        Returns:
-            dict: A dictionary where the keys are section IDs and the values are their hierarchical numbering.
+        Generate numbering for all sections based on the database hierarchy.
         """
         numbering_dict = {}
 
         def recursive_numbering(parent_id=None, prefix=""):
-            """
-            Recursively generate numbering for sections.
-            Args:
-                parent_id (int or None): The parent section ID. Use None for root-level sections.
-                prefix (str): The numbering prefix for the current level.
-            """
             try:
-                # Retrieve children based on parent_id
+                # Fetch children based on parent_id
                 if parent_id is None:
-                    self.cursor.execute(
-                        """
-                        SELECT id, placement FROM sections
-                        WHERE parent_id IS NULL
+                    self.cursor.execute("""
+                        SELECT id, placement FROM sections 
+                        WHERE parent_id IS NULL 
                         ORDER BY placement, id
-                        """
-                    )
+                    """)
                 else:
-                    self.cursor.execute(
-                        """
-                        SELECT id, placement FROM sections
-                        WHERE parent_id = ?
+                    self.cursor.execute("""
+                        SELECT id, placement FROM sections 
+                        WHERE parent_id = ? 
                         ORDER BY placement, id
-                        """,
-                        (parent_id,),
-                    )
+                    """, (parent_id,))
 
                 children = self.cursor.fetchall()
-
                 for idx, (child_id, _) in enumerate(children, start=1):
                     number = f"{prefix}{idx}"
                     numbering_dict[child_id] = number
@@ -381,8 +408,7 @@ class DatabaseHandler:
             except Exception as e:
                 print(f"Error in generate_numbering: {e}")
 
-        # Start numbering from the root
-        recursive_numbering()
+        recursive_numbering()  # Start numbering from the root
         return numbering_dict
 
     def clean_parent_ids(self):

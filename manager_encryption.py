@@ -4,6 +4,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+from functools import lru_cache
+
+from utility import timer
 
 class EncryptionManager:
     def __init__(self, password: str):
@@ -14,6 +17,8 @@ class EncryptionManager:
             raise ValueError("Password must be at least 14 characters.")
         self.password = password.encode('utf-8')  # Convert password to bytes
 
+    @timer
+    @lru_cache(maxsize=1000)  # Cache up to 1000 salt-key pairs
     def _derive_key(self, salt: bytes) -> bytes:
         """
         Derive a 256-bit key from the password and salt using PBKDF2.
@@ -27,6 +32,7 @@ class EncryptionManager:
         )
         return kdf.derive(self.password)
 
+    @timer
     def encrypt_string(self, plain_text: str) -> str:
         if not plain_text:  # Handle empty input
             plain_text = " "  # Default to a single space
@@ -45,6 +51,7 @@ class EncryptionManager:
         #print(f"Encrypting: Salt={salt.hex()}, IV={iv.hex()}, Padded Text={padded_text}")
         return base64.b64encode(combined_data).decode('utf-8')
 
+    @timer
     def decrypt_string(self, encrypted_text: str) -> str:
         if not encrypted_text:
             return ""  # Handle empty input

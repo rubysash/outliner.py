@@ -2,11 +2,13 @@ import ttkbootstrap as ttk
 from ttkbootstrap import Style
 from tkinter import messagebox, simpledialog
 from tkinter.filedialog import asksaveasfilename, askopenfilename
+
 import tkinter as tk
 import tkinter.font as tkFont 
 import sqlite3
 import json
 
+from utility import timer
 from manager_docx import export_to_docx
 from manager_json import load_from_json_file
 from manager_encryption import EncryptionManager
@@ -251,7 +253,7 @@ class OutLineEditorApp:
         for button in self.exports_buttons.winfo_children():
             button.configure(state=state)
 
-
+    @timer
     def add_section(self, section_type, parent_type=None, title_prefix="Section"):
         """
         Add a new section (H1, H2, H3, H4) to the tree with proper encryption.
@@ -300,6 +302,10 @@ class OutLineEditorApp:
             if previous_selection:
                 self.select_item(previous_selection[0])
 
+            # Update numbering after adding the section
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+
             return section_id
 
         except Exception as e:
@@ -308,7 +314,7 @@ class OutLineEditorApp:
             return None
 
 
-
+    @timer
     def handle_load_database(self):
         """Handle loading a database file with proper encryption management."""
         file_path = askopenfilename(
@@ -390,7 +396,8 @@ class OutLineEditorApp:
             print(f"Database loading error: {e}")
             messagebox.showerror("Error", f"Failed to load database: {e}")
             self.handle_authentication_failure("Failed to authenticate with the loaded database.")
-
+    
+    @timer
     def load_selected(self, event):
         """Load the selected item and populate the editor with decrypted data."""
         if not self.is_authenticated or not self.encryption_manager:
@@ -454,7 +461,10 @@ class OutLineEditorApp:
         )
         self.tree = ttk.Treeview(self.tree_frame, show="tree", bootstyle="info")
         self.tree.grid(row=1, column=0, sticky="nswe", pady=section_pady)
-        self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+
+        self.tree.bind("<<TreeviewSelect>>", self.load_selected)  # Bind for handling selection
+        self.tree.bind("<<TreeviewOpen>>", self.on_tree_expand)   # Bind for handling lazy loading on expand
+
 
         ttk.Label(self.tree_frame, text="Search <Enter>", bootstyle="info").grid(
             row=2, column=0, sticky="w", padx=label_padx, pady=(5, 0)
@@ -561,6 +571,41 @@ class OutLineEditorApp:
 
     # TREE MANIPULATION
 
+    @timer
+    def on_tree_expand(self, event):
+        """
+        Handle TreeView node expansion and load child nodes lazily.
+        """
+        selected_node = self.tree.focus()
+        if not selected_node:
+            return
+
+        # Remove any existing hidden nodes
+        children = self.tree.get_children(selected_node)
+        for child in children:
+            if "hidden" in self.tree.item(child, "tags"):
+                try:
+                    self.tree.delete(child)
+                except Exception as e:
+                    print(f"Error deleting hidden node: {e}")
+                    continue
+
+        try:
+            # Load actual children dynamically
+            self.populate_tree(
+                parent_id=self.get_item_id(selected_node), 
+                parent_node=selected_node
+            )
+
+            # Update numbering after loading children
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+        except Exception as e:
+            print(f"Error in tree expansion: {e}")
+
+
+
+    @timer
     def populate_filtered_tree(self, parent_id, parent_node, ids_to_show, parents_to_show):
         """Recursively populate the treeview with filtered data."""
         children = self.db.load_children(parent_id)  # Add `load_children` method in `DatabaseHandler`
@@ -571,29 +616,23 @@ class OutLineEditorApp:
                 self.tree.see(node)  # Ensure the node is visible
                 self.populate_filtered_tree(child[0], node, ids_to_show, parents_to_show)
 
+    @timer
     def move_up(self):
         selected = self.tree.selection()
         if not selected:
             return
         
-        print("\n=== MOVE UP DEBUG ===")
-        print(f"Selected items: {selected}")
 
         item_id = self.get_item_id(selected[0])
         parent_id = self.tree.parent(selected[0]) or None
 
         if parent_id is None:
-            print("Moving H1 section up")
-            print(f"Item ID: {item_id}")
             
             # First, let's see all H1 sections and their placements
             self.db.cursor.execute(
                 "SELECT id, placement, title FROM sections WHERE parent_id IS NULL ORDER BY placement"
             )
             all_h1s = self.db.cursor.fetchall()
-            print("\nAll H1 sections:")
-            for h1 in all_h1s:
-                print(f"ID: {h1[0]}, Placement: {h1[1]}, Title: {h1[2]}")
             
             # Handle H1 sections - direct placement manipulation
             query = """
@@ -646,25 +685,30 @@ class OutLineEditorApp:
                 self.db.fix_placement(parent_id)
 
         self.refresh_tree()
+        
+        # Recalculate numbering after moving the node
+        numbering_dict = self.db.generate_numbering()  # Generate new numbering
+        self.calculate_numbering(numbering_dict)       # Apply numbering to the TreeView
+        
         self.select_item(item_id)
 
+    @timer
     def move_down(self):
         selected = self.tree.selection()
         if not selected:
             return
-            
-        item_id = self.get_item_id(selected[0])
-        parent_id = self.tree.parent(selected[0]) or None
+
+        item_id = self.get_item_id(selected[0])  # Get the ID of the selected item
+        parent_id = self.tree.parent(selected[0]) or None  # Get the parent ID, or None for root-level items
 
         if parent_id is None:
-            
-            # First, let's see all H1 sections and their placements
+            # Handle root-level (H1) sections
             self.db.cursor.execute(
                 "SELECT id, placement, title FROM sections WHERE parent_id IS NULL ORDER BY placement"
             )
             all_h1s = self.db.cursor.fetchall()
             
-            # Handle H1 sections - direct placement manipulation
+            # Query for the next sibling
             query = """
                 SELECT s1.id, s1.placement, s2.id as next_id, s2.placement as next_placement
                 FROM sections s1
@@ -673,13 +717,13 @@ class OutLineEditorApp:
                 WHERE s1.id = ?
                 ORDER BY s2.placement ASC
                 LIMIT 1
-                """
+            """
             
             self.db.cursor.execute(query, (item_id,))
             result = self.db.cursor.fetchone()
             
             if result and result[2] is not None:  # If there's a next item
-                # Direct swap of placement values
+                # Swap placements
                 update_query = """
                     UPDATE sections 
                     SET placement = CASE
@@ -687,13 +731,13 @@ class OutLineEditorApp:
                         WHEN id = ? THEN ?
                     END
                     WHERE id IN (?, ?)
-                    """
+                """
                 params = (item_id, result[3], result[2], result[1], item_id, result[2])
                 
                 self.db.cursor.execute(update_query, params)
                 self.db.conn.commit()
-                
-                # Verify the update
+
+                # Verify the update (optional, for debugging)
                 self.db.cursor.execute(
                     "SELECT id, placement, title FROM sections WHERE id IN (?, ?)",
                     (item_id, result[2])
@@ -714,9 +758,17 @@ class OutLineEditorApp:
                 self.swap_placement(item_id, next_item_id)
                 self.db.fix_placement(parent_id)
 
+        # Refresh the tree to reflect changes
         self.refresh_tree()
+
+        # Recalculate numbering after moving the node
+        numbering_dict = self.db.generate_numbering()  # Generate new numbering
+        self.calculate_numbering(numbering_dict)       # Apply numbering to the TreeView
+
+        # Reselect the moved item
         self.select_item(item_id)
 
+    @timer
     def move_left(self):
         """Move the selected item up one level in the hierarchy."""
         selected = self.tree.selection()
@@ -764,6 +816,7 @@ class OutLineEditorApp:
         self.refresh_tree()
         self.select_item(selected[0])
 
+    @timer
     def move_right(self):
         """Move the selected item down one level in the hierarchy."""
         selected = self.tree.selection()
@@ -811,6 +864,7 @@ class OutLineEditorApp:
         self.refresh_tree()
         self.select_item(selected[0])
 
+    @timer
     def refresh_tree(self):
         """Reload the TreeView to reflect database changes."""
         try:
@@ -821,24 +875,36 @@ class OutLineEditorApp:
         except Exception as e:
             print(f"Error in refresh_tree: {e}")
 
+    @timer
     def calculate_numbering(self, numbering_dict):
-        """Assign hierarchical numbering to tree nodes based on the provided numbering dictionary."""
+        """
+        Assign hierarchical numbering to tree nodes based on the provided numbering dictionary.
+        Skip dummy nodes during numbering.
+        """
         for node in self.tree.get_children():
             self.apply_numbering_recursive(node, numbering_dict)
 
+    @timer
     def apply_numbering_recursive(self, node, numbering_dict):
-        """Apply numbering to a node and its children recursively."""
+        """
+        Apply numbering to a node and its children recursively.
+        Skip dummy nodes during numbering.
+        """
+        # Skip dummy nodes
+        if "hidden" in self.tree.item(node, "tags"):
+            return
+            
         node_id = self.get_item_id(node)
-        if node_id in numbering_dict:
-            logical_title = self.tree.item(node, "text").split(". ", 1)[
-                -1
-            ]  # Remove existing numbering
+        if node_id is not None and node_id in numbering_dict:
+            logical_title = self.tree.item(node, "text").split(". ", 1)[-1]  # Remove existing numbering
             display_title = f"{numbering_dict[node_id]}. {logical_title}"
             self.tree.item(node, text=display_title)
 
+        # Process children recursively
         for child in self.tree.get_children(node):
             self.apply_numbering_recursive(child, numbering_dict)
 
+    @timer
     def get_expanded_items(self):
         """Get a list of expanded items in the Treeview."""
         expanded_items = []
@@ -846,6 +912,7 @@ class OutLineEditorApp:
             expanded_items.extend(self.get_expanded_items_recursively(item))
         return expanded_items
 
+    @timer
     def get_expanded_items_recursively(self, item):
         """Recursively check for expanded items."""
         expanded_items = []
@@ -855,19 +922,28 @@ class OutLineEditorApp:
                 expanded_items.extend(self.get_expanded_items_recursively(child))
         return expanded_items
 
+    @timer
     def restore_expansion_state(self, expanded_items):
         """Restore the expanded state of items in the Treeview."""
         for item in expanded_items:
             self.tree.item(item, open=True)
 
+    @timer
     def get_item_id(self, node):
-        """Get the numeric ID from a tree node ID."""
+        """
+        Extract the numeric ID from the node identifier. Supports both numeric and prefixed IDs.
+        """
         try:
+            # Assume node ID is numeric by default
+            if node.startswith("I"):
+                return int(node[1:])  # Strip "I" prefix and parse as integer
             return int(node)
         except (ValueError, TypeError):
             print(f"Warning: Invalid node ID format: {node}")
             return None
 
+
+    @timer
     def select_item(self, item_id):
         """Select and focus an item in the treeview."""
         try:
@@ -881,35 +957,60 @@ class OutLineEditorApp:
 
     # CRUD RELATED
 
+    @timer
     def load_from_database(self):
+        """
+        Load and populate the root-level nodes in the TreeView.
+        """
         try:
-            # Clear the treeview
+            # Clear the TreeView
             self.tree.delete(*self.tree.get_children())
 
             # Ensure consistency in the database
             self.db.clean_parent_ids()
 
-            expanded_items = self.get_expanded_items()
+            # Populate the root-level nodes
+            self.populate_tree(None, "")
 
-            # Fetch decrypted data from the database
-            sections = self.db.load_from_database()
+            # Generate numbering for all sections
+            numbering_dict = self.db.generate_numbering()
 
-            # Populate the treeview with decrypted titles
-            def populate_tree(parent_id, parent_node):
-                current_level = [s for s in sections if s[3] == parent_id]
-                for section in current_level:
-                    node = self.tree.insert(
-                        parent_node, "end", section[0], text=section[1]
-                    )
-                    populate_tree(section[0], node)
+            # Apply numbering to the TreeView nodes
+            self.calculate_numbering(numbering_dict)
 
-            numbering_dict = self.db.generate_numbering()  # Generate numbering dictionary
-            populate_tree(None, "")
-            self.calculate_numbering(numbering_dict)  # Pass only numbering_dict
-            self.restore_expansion_state(expanded_items)
         except Exception as e:
             print(f"Error in load_from_database: {e}")
 
+    @timer
+    def populate_tree(self, parent_id=None, parent_node=""):
+        """
+        Populate the tree lazily with nodes.
+        Args:
+            parent_id: The database ID of the parent section
+            parent_node: The treeview ID of the parent node
+        """
+        children = self.db.load_children(parent_id)
+        for child_id, encrypted_title, parent_id in children:
+            if not child_id:  # Skip invalid entries
+                continue
+                
+            title = self.db.decrypt_safely(encrypted_title, default="Untitled")
+            node_id = f"I{child_id}"
+            
+            # Check if node already exists
+            if not self.tree.exists(node_id):
+                # Only create nodes that have actual content
+                if title and title.strip():
+                    node = self.tree.insert(parent_node, "end", node_id, text=title)
+                    
+                    # If this node has children, configure it to show the + sign
+                    if self.db.has_children(child_id):
+                        dummy_id = f"dummy_{node_id}"
+                        # Only add dummy if it doesn't exist
+                        if not self.tree.exists(dummy_id):
+                            self.tree.insert(node, 0, dummy_id, text="", tags=["hidden"])
+
+    @timer
     def load_database_from_file(self, db_path):
         """Load an existing database file and verify its schema and password."""
         try:
@@ -988,6 +1089,7 @@ class OutLineEditorApp:
         except Exception as e:
             raise RuntimeError(f"An error occurred while loading the database: {e}")
 
+    @timer
     def load_selected(self, event):
         """Load the selected item and populate the editor with decrypted data."""
         if not self.is_authenticated:
@@ -1028,6 +1130,7 @@ class OutLineEditorApp:
             self.handle_authentication_failure("Decryption failed. Please verify your password.")
             return
 
+    @timer
     def save_data(self):
         """Save data with authentication check."""
         if not self.is_authenticated or self.last_selected_item_id is None:
@@ -1056,6 +1159,7 @@ class OutLineEditorApp:
             self.handle_authentication_failure("Encryption failed. Please verify your password.")
             return
 
+    @timer
     def delete_selected(self):
         """Deletes the selected item and all its children, ensuring parent restrictions."""
         selected = self.tree.selection()
@@ -1091,6 +1195,10 @@ class OutLineEditorApp:
             self.questions_text.delete(1.0, tk.END)
 
             print(f"Deleted: {item_type.capitalize()} deleted successfully.")
+            
+            # Update numbering 
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
 
     def reset_database(self):
         """Prompt for a new database file and password, then reset the Treeview."""
@@ -1202,6 +1310,7 @@ class OutLineEditorApp:
             print(f"Error in get_item_type: {e}")
             return None
 
+    @timer
     def execute_search(self, event=None):
         """Filter TreeView to show only items matching the search query."""
         query = self.search_entry.get().strip()
@@ -1224,6 +1333,7 @@ class OutLineEditorApp:
 
     # UTILITY
 
+    @timer
     def change_database_password(self):
         """Enhanced password change with proper validation and UI state management."""
         dialog = PasswordChangeDialog(self.root)
