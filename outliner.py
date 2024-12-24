@@ -588,13 +588,11 @@ class OutLineEditorApp:
         selected = self.tree.selection()
         if not selected:
             return
-        
 
         item_id = self.get_item_id(selected[0])
         parent_id = self.tree.parent(selected[0]) or None
 
         if parent_id is None:
-            
             # First, let's see all H1 sections and their placements
             self.db.cursor.execute(
                 "SELECT id, placement, title FROM sections WHERE parent_id IS NULL ORDER BY placement"
@@ -630,34 +628,34 @@ class OutLineEditorApp:
                 self.db.cursor.execute(update_query, params)
                 self.db.conn.commit()
                 
-                # Verify the update
-                self.db.cursor.execute(
-                    "SELECT id, placement, title FROM sections WHERE id IN (?, ?)",
-                    (item_id, result[2])
-                )
-                updated_rows = self.db.cursor.fetchall()
         else:
-            # Handle child sections
+            # Handle child sections - we need to handle the "I" prefix here
+            parent_db_id = self.get_item_id(parent_id)  # Convert parent ID to database ID
             self.db.cursor.execute(
                 "SELECT id, placement FROM sections WHERE parent_id = ? ORDER BY placement",
-                (parent_id,),
+                (parent_db_id,),
             )
             siblings = self.db.cursor.fetchall()
-            sibling_ids = [item[0] for item in siblings]
-            current_index = sibling_ids.index(item_id)
-
-            if current_index > 0:
-                prev_item_id = sibling_ids[current_index - 1]
-                self.swap_placement(item_id, prev_item_id)
-                self.db.fix_placement(parent_id)
+            sibling_ids = [s[0] for s in siblings]  # These are database IDs
+            
+            try:
+                current_index = sibling_ids.index(item_id)
+                if current_index > 0:
+                    prev_item_id = sibling_ids[current_index - 1]
+                    self.swap_placement(item_id, prev_item_id)
+                    self.db.fix_placement(parent_db_id)
+            except ValueError as e:
+                print(f"Error finding item in siblings: {e}")
+                return
 
         self.refresh_tree()
         
         # Recalculate numbering after moving the node
-        numbering_dict = self.db.generate_numbering()  # Generate new numbering
-        self.calculate_numbering(numbering_dict)       # Apply numbering to the TreeView
+        numbering_dict = self.db.generate_numbering()
+        self.calculate_numbering(numbering_dict)
         
-        self.select_item(item_id)
+        # Select using the proper ID format
+        self.select_item(f"I{item_id}")
 
     @timer
     def move_down(self):
@@ -665,8 +663,8 @@ class OutLineEditorApp:
         if not selected:
             return
 
-        item_id = self.get_item_id(selected[0])  # Get the ID of the selected item
-        parent_id = self.tree.parent(selected[0]) or None  # Get the parent ID, or None for root-level items
+        item_id = self.get_item_id(selected[0])
+        parent_id = self.tree.parent(selected[0]) or None
 
         if parent_id is None:
             # Handle root-level (H1) sections
@@ -703,37 +701,30 @@ class OutLineEditorApp:
                 
                 self.db.cursor.execute(update_query, params)
                 self.db.conn.commit()
-
-                # Verify the update (optional, for debugging)
-                self.db.cursor.execute(
-                    "SELECT id, placement, title FROM sections WHERE id IN (?, ?)",
-                    (item_id, result[2])
-                )
-                updated_rows = self.db.cursor.fetchall()
         else:
-            # Handle child sections
+            # Handle child sections with proper ID conversion
+            parent_db_id = self.get_item_id(parent_id)
             self.db.cursor.execute(
                 "SELECT id, placement FROM sections WHERE parent_id = ? ORDER BY placement",
-                (parent_id,),
+                (parent_db_id,),
             )
             siblings = self.db.cursor.fetchall()
-            sibling_ids = [item[0] for item in siblings]
-            current_index = sibling_ids.index(item_id)
+            sibling_ids = [s[0] for s in siblings]  # These are database IDs
+            
+            try:
+                current_index = sibling_ids.index(item_id)
+                if current_index < len(sibling_ids) - 1:
+                    next_item_id = sibling_ids[current_index + 1]
+                    self.swap_placement(item_id, next_item_id)
+                    self.db.fix_placement(parent_db_id)
+            except ValueError as e:
+                print(f"Error finding item in siblings: {e}")
+                return
 
-            if current_index < len(sibling_ids) - 1:
-                next_item_id = sibling_ids[current_index + 1]
-                self.swap_placement(item_id, next_item_id)
-                self.db.fix_placement(parent_id)
-
-        # Refresh the tree to reflect changes
         self.refresh_tree()
-
-        # Recalculate numbering after moving the node
-        numbering_dict = self.db.generate_numbering()  # Generate new numbering
-        self.calculate_numbering(numbering_dict)       # Apply numbering to the TreeView
-
-        # Reselect the moved item
-        self.select_item(item_id)
+        numbering_dict = self.db.generate_numbering()
+        self.calculate_numbering(numbering_dict)
+        self.select_item(f"I{item_id}")
 
     @timer
     def move_left(self):
@@ -749,8 +740,8 @@ class OutLineEditorApp:
             messagebox.showerror("Error", "Cannot move root-level items left.")
             return
 
-        grandparent_id = self.tree.parent(self.tree.parent(selected[0]))
-        grandparent_id = None if grandparent_id == "" else grandparent_id  # Normalize empty string to None
+        grandparent_node = self.tree.parent(current_parent_id)
+        grandparent_id = self.get_item_id(grandparent_node) if grandparent_node else None
         current_type = self.db.get_section_type(item_id)
 
         # Determine the new type
@@ -766,22 +757,21 @@ class OutLineEditorApp:
             messagebox.showerror("Error", "Unsupported section type for this operation.")
             return
 
-        # Update database
+        # Update database with proper ID conversion
+        parent_db_id = self.get_item_id(current_parent_id)
         self.db.cursor.execute(
             "UPDATE sections SET parent_id = ?, type = ? WHERE id = ?",
             (grandparent_id, new_type, item_id)
         )
 
         # Fix placements
-        self.db.fix_placement(current_parent_id)
+        self.db.fix_placement(parent_db_id)
         if grandparent_id:
             self.db.fix_placement(grandparent_id)
 
         self.db.conn.commit()
-
-        # Refresh the tree
         self.refresh_tree()
-        self.select_item(selected[0])
+        self.select_item(f"I{item_id}")
 
     @timer
     def move_right(self):
@@ -799,7 +789,8 @@ class OutLineEditorApp:
             messagebox.showerror("Error", "Cannot move the first sibling right.")
             return
 
-        new_parent_id = self.get_item_id(siblings[index - 1])
+        new_parent_node = siblings[index - 1]
+        new_parent_id = self.get_item_id(new_parent_node)
         parent_type = self.db.get_section_type(new_parent_id)
 
         # Determine the new type
@@ -815,21 +806,21 @@ class OutLineEditorApp:
             messagebox.showerror("Error", "Unsupported section type for this operation.")
             return
 
-        # Update database
+        # Update database with proper ID conversion
+        parent_db_id = self.get_item_id(current_parent_id) if current_parent_id else None
         self.db.cursor.execute(
             "UPDATE sections SET parent_id = ?, type = ? WHERE id = ?",
             (new_parent_id, new_type, item_id)
         )
 
         # Fix placements
-        self.db.fix_placement(current_parent_id)
+        if parent_db_id:
+            self.db.fix_placement(parent_db_id)
         self.db.fix_placement(new_parent_id)
 
         self.db.conn.commit()
-
-        # Refresh the tree
         self.refresh_tree()
-        self.select_item(selected[0])
+        self.select_item(f"I{item_id}")
 
     @timer
     def calculate_numbering(self, numbering_dict):
@@ -922,7 +913,6 @@ class OutLineEditorApp:
                 else:
                     display_title = new_title
                 
-                print(f"Updating tree item {item_iid} with display title: {display_title}")  # Debug
                 self.tree.item(item_iid, text=display_title)
                 self.tree.update()  # Force visual refresh
                 
