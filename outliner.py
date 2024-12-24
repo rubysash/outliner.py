@@ -568,8 +568,6 @@ class OutLineEditorApp:
         except Exception as e:
             print(f"Error in tree expansion: {e}")
 
-
-
     @timer
     def populate_filtered_tree(self, parent_id, parent_node, ids_to_show, parents_to_show):
         """Recursively populate the treeview with filtered data."""
@@ -861,43 +859,110 @@ class OutLineEditorApp:
     @timer
     def refresh_tree(self, event=None):
         """
-        Reload the TreeView to reflect database changes.
+        Reload the TreeView to reflect database changes while preserving expansion state.
         """
         try:
-            expanded_items = self.get_expanded_items()  # Preserve expanded state
+            # Get currently expanded items before refresh (using database IDs)
+            expanded_db_ids = self.get_expanded_items()
+            
+            # Store current selection if any
+            selected = self.tree.selection()
+            selected_db_id = self.get_item_id(selected[0]) if selected else None
+            
+            # Clear the tree
             self.tree.delete(*self.tree.get_children())
+            
+            # Reload the tree
             self.load_from_database()
-            self.restore_expansion_state(expanded_items)  # Restore expanded state
+            
+            # Restore expansion state
+            self.restore_expansion_state(expanded_db_ids)
+            
+            # Restore selection if possible
+            if selected_db_id is not None:
+                self.select_item(selected_db_id)
+                
+            # Update numbering
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+            
         except Exception as e:
             print(f"Error in refresh_tree: {e}")
 
     @timer
     def get_expanded_items(self):
-        """Get a list of expanded items in the Treeview."""
-        expanded_items = []
+        """
+        Get a list of database IDs for expanded items in the Treeview.
+        Returns:
+            list: List of database IDs (not tree IDs) of expanded items
+        """
+        expanded_db_ids = []
         for item in self.tree.get_children():
-            expanded_items.extend(self.get_expanded_items_recursively(item))
-        return expanded_items
-
+            expanded_db_ids.extend(self.get_expanded_items_recursively(item))
+        return expanded_db_ids
 
     @timer
     def get_expanded_items_recursively(self, item):
-        """Recursively check for expanded items."""
-        expanded_items = []
-        if self.tree.item(item, "open"):
-            expanded_items.append(item)
-            for child in self.tree.get_children(item):
-                expanded_items.extend(self.get_expanded_items_recursively(child))
-        return expanded_items
+        """
+        Recursively check for expanded items and return their database IDs.
+        Args:
+            item: Current tree item ID
+        Returns:
+            list: List of database IDs for expanded items in this branch
+        """
+        expanded_db_ids = []
+        try:
+            if self.tree.item(item, "open"):
+                # Extract the database ID from the tree item ID
+                db_id = self.get_item_id(item)
+                if db_id is not None:
+                    expanded_db_ids.append(db_id)
+                
+                # Process children
+                for child in self.tree.get_children(item):
+                    if "hidden" not in self.tree.item(child, "tags"):  # Skip hidden nodes
+                        expanded_db_ids.extend(self.get_expanded_items_recursively(child))
+        except Exception as e:
+            print(f"Error in get_expanded_items_recursively: {e}")
+        return expanded_db_ids
 
     @timer
-    def restore_expansion_state(self, expanded_items):
+    def restore_expansion_state(self, expanded_db_ids):
         """
-        Restore the expanded state of items in the treeview.
+        Restore the expanded state of items in the treeview using database IDs.
+        Args:
+            expanded_db_ids: List of database IDs that were previously expanded
         """
-        for item in expanded_items:
-            if self.tree.exists(item):
-                self.tree.item(item, open=True)
+        if not expanded_db_ids:
+            return
+
+        def expand_recursive(node):
+            """Recursively expand nodes and their children if they match expanded_db_ids."""
+            try:
+                db_id = self.get_item_id(node)
+                if db_id in expanded_db_ids:
+                    # Remove any dummy nodes before expanding
+                    children = self.tree.get_children(node)
+                    for child in children:
+                        if "hidden" in self.tree.item(child, "tags"):
+                            self.tree.delete(child)
+                    
+                    # Populate real children
+                    self.populate_tree(db_id, node)
+                    
+                    # Set the node as expanded
+                    self.tree.item(node, open=True)
+                    
+                    # Process actual children
+                    for child in self.tree.get_children(node):
+                        if "hidden" not in self.tree.item(child, "tags"):
+                            expand_recursive(child)
+            except Exception as e:
+                print(f"Error in expand_recursive: {e}")
+
+        # Start the recursive expansion from root level
+        for root_item in self.tree.get_children():
+            expand_recursive(root_item)
 
     @timer
     def get_item_id(self, node):
