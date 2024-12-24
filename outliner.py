@@ -67,6 +67,7 @@ class PasswordChangeDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         
+        
     def change(self):
         current = self.current_password.get()
         new = self.new_password.get()
@@ -137,6 +138,8 @@ class OutLineEditorApp:
         self.root.bind_all("<Control-Key-2>", lambda event: self.add_h2())
         self.root.bind_all("<Control-Key-3>", lambda event: self.add_h3())
         self.root.bind_all("<Control-Key-4>", lambda event: self.add_h4())
+        self.root.bind_all("<Control-s>", self.save_data)
+        self.root.bind_all("<Control-r>", self.refresh_tree)
 
         # Create the individual tabs
         self.create_editor_tab(
@@ -180,11 +183,14 @@ class OutLineEditorApp:
         # Load initial data into the editor
         self.load_from_database()
 
-        # Bind notebook tab change to save data
-        self.notebook.bind("<<NotebookTabChanged>>", lambda event: self.save_data())
+        # Bind notebook tab change to save data and refresh the tree
+        self.notebook.bind("<<NotebookTabChanged>>", lambda event: (self.save_data(), self.refresh_tree()))
+
 
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+
 
     def initialize_password(self):
         """
@@ -234,7 +240,8 @@ class OutLineEditorApp:
         self.encryption_manager = None
         messagebox.showerror("Authentication Error", message)
         self.set_ui_state(False)
-        
+
+    @timer
     def set_ui_state(self, enabled):
         """Enable or disable UI elements based on authentication state."""
         state = "normal" if enabled else "disabled"
@@ -313,7 +320,6 @@ class OutLineEditorApp:
             print(f"Error adding section: {e}")
             messagebox.showerror("Error", "Failed to add section. Please verify your password.")
             return None
-
 
     @timer
     def handle_load_database(self):
@@ -398,50 +404,6 @@ class OutLineEditorApp:
             messagebox.showerror("Error", f"Failed to load database: {e}")
             self.handle_authentication_failure("Failed to authenticate with the loaded database.")
     
-    @timer
-    def load_selected(self, event):
-        """Load the selected item and populate the editor with decrypted data."""
-        if not self.is_authenticated or not self.encryption_manager:
-            return
-                
-        if self.last_selected_item_id is not None:
-            self.save_data()
-
-        selected = self.tree.selection()
-        if not selected:
-            return
-
-        item_id = self.get_item_id(selected[0])
-        self.last_selected_item_id = item_id
-
-        try:
-            # Ensure DB handler has current encryption manager
-            self.db.encryption_manager = self.encryption_manager
-            
-            row = self.db.cursor.execute(
-                "SELECT title, questions FROM sections WHERE id = ?", (item_id,)
-            ).fetchone()
-
-            self.title_entry.delete(0, tk.END)
-            self.questions_text.delete(1.0, tk.END)
-
-            if row:
-                title, encrypted_questions = row
-                decrypted_title = self.encryption_manager.decrypt_string(title)
-                self.title_entry.insert(0, decrypted_title if decrypted_title else "")
-
-                if encrypted_questions:
-                    decrypted_questions = self.encryption_manager.decrypt_string(
-                        encrypted_questions
-                    )
-                    parsed_questions = json.loads(decrypted_questions.strip())
-                    self.questions_text.insert(tk.END, "\n".join(parsed_questions))
-                    
-        except Exception as e:
-            print(f"Selection loading error: {e}")
-            self.handle_authentication_failure("Decryption failed. Please verify your password.")
-            return
-
     # TABS
 
     def create_editor_tab(self, label_padx, label_pady, entry_pady, section_pady, button_padx, button_pady):
@@ -464,6 +426,8 @@ class OutLineEditorApp:
         self.tree.grid(row=1, column=0, sticky="nswe", pady=section_pady)
 
         self.tree.bind("<<TreeviewSelect>>", self.load_selected)  # Bind for handling selection
+        # self.tree.bind("<<TreeviewSelect>>", lambda event: (self.load_selected, self.refresh_tree()))  # can't go here
+        #self.tree.bind("<<TreeviewSelect>>", lambda event: (self.refresh_tree(), self.load_selected))  # can't go here
         self.tree.bind("<<TreeviewOpen>>", self.on_tree_expand)   # Bind for handling lazy loading on expand
 
 
@@ -866,17 +830,6 @@ class OutLineEditorApp:
         self.select_item(selected[0])
 
     @timer
-    def refresh_tree(self):
-        """Reload the TreeView to reflect database changes."""
-        try:
-            expanded_items = self.get_expanded_items()
-            self.tree.delete(*self.tree.get_children())
-            self.load_from_database()
-            self.restore_expansion_state(expanded_items)
-        except Exception as e:
-            print(f"Error in refresh_tree: {e}")
-
-    @timer
     def calculate_numbering(self, numbering_dict):
         """
         Assign hierarchical numbering to tree nodes based on the provided numbering dictionary.
@@ -906,12 +859,26 @@ class OutLineEditorApp:
             self.apply_numbering_recursive(child, numbering_dict)
 
     @timer
+    def refresh_tree(self, event=None):
+        """
+        Reload the TreeView to reflect database changes.
+        """
+        try:
+            expanded_items = self.get_expanded_items()  # Preserve expanded state
+            self.tree.delete(*self.tree.get_children())
+            self.load_from_database()
+            self.restore_expansion_state(expanded_items)  # Restore expanded state
+        except Exception as e:
+            print(f"Error in refresh_tree: {e}")
+
+    @timer
     def get_expanded_items(self):
         """Get a list of expanded items in the Treeview."""
         expanded_items = []
         for item in self.tree.get_children():
             expanded_items.extend(self.get_expanded_items_recursively(item))
         return expanded_items
+
 
     @timer
     def get_expanded_items_recursively(self, item):
@@ -925,9 +892,12 @@ class OutLineEditorApp:
 
     @timer
     def restore_expansion_state(self, expanded_items):
-        """Restore the expanded state of items in the Treeview."""
+        """
+        Restore the expanded state of items in the treeview.
+        """
         for item in expanded_items:
-            self.tree.item(item, open=True)
+            if self.tree.exists(item):
+                self.tree.item(item, open=True)
 
     @timer
     def get_item_id(self, node):
@@ -942,7 +912,6 @@ class OutLineEditorApp:
         except (ValueError, TypeError):
             print(f"Warning: Invalid node ID format: {node}")
             return None
-
 
     @timer
     def select_item(self, item_id):
@@ -1093,11 +1062,14 @@ class OutLineEditorApp:
     @timer
     def load_selected(self, event):
         """Load the selected item and populate the editor with decrypted data."""
-        if not self.is_authenticated:
+        if not self.is_authenticated or not self.encryption_manager:
             return
-            
+                
         if self.last_selected_item_id is not None:
             self.save_data()
+            # can't go here
+            #self.refresh_tree()
+
 
         selected = self.tree.selection()
         if not selected:
@@ -1105,8 +1077,14 @@ class OutLineEditorApp:
 
         item_id = self.get_item_id(selected[0])
         self.last_selected_item_id = item_id
+        
+        # can't go here
+        #self.refresh_tree()
 
         try:
+            # Ensure DB handler has current encryption manager
+            self.db.encryption_manager = self.encryption_manager
+            
             row = self.db.cursor.execute(
                 "SELECT title, questions FROM sections WHERE id = ?", (item_id,)
             ).fetchone()
@@ -1126,13 +1104,17 @@ class OutLineEditorApp:
                     parsed_questions = json.loads(decrypted_questions.strip())
                     self.questions_text.insert(tk.END, "\n".join(parsed_questions))
                     
+            # can't go here
+            #self.refresh_tree()
+
+                    
         except Exception as e:
-            print(f"Decryption Error: {e}")
+            print(f"Selection loading error: {e}")
             self.handle_authentication_failure("Decryption failed. Please verify your password.")
             return
 
     @timer
-    def save_data(self):
+    def save_data(self, event=None):
         """Save data with authentication check."""
         if not self.is_authenticated or self.last_selected_item_id is None:
             return
@@ -1155,6 +1137,10 @@ class OutLineEditorApp:
             numbering_dict = self.db.generate_numbering()
             self.calculate_numbering(numbering_dict)
             
+            # can't go here
+            #self.refresh_tree()
+
+           
         except Exception as e:
             print(f"Encryption Error: {e}")
             self.handle_authentication_failure("Encryption failed. Please verify your password.")

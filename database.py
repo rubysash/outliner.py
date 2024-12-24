@@ -132,7 +132,6 @@ class DatabaseHandler:
         self._numbering_cache[cache_key] = numbering_dict
         return numbering_dict
 
-
     @timer
     def has_children(self, section_id):
         """
