@@ -98,8 +98,11 @@ class OutLineEditorApp:
         self.root = root
         self.root.title(f"Outline Editor v{VERSION}")
         
+        # tree item tracking for lazy loading work around
         self._suppress_selection_event = False
         self._selection_binding = None  # Store the event binding
+        self.last_selected_item_id = None
+        self.previous_item_id = None  # Track the previously selected item
 
         # Set global font scaling using tkinter.font
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -907,8 +910,11 @@ class OutLineEditorApp:
             # Get the current numbering
             numbering_dict = self.db.generate_numbering()
             
-            # Find and update the item
-            item_iid = str(item_id)
+            # Find and update the item - try both with and without the "I" prefix
+            item_iid = f"I{item_id}"  # First try with "I" prefix
+            if not self.tree.exists(item_iid):
+                item_iid = str(item_id)  # Try without prefix
+                
             if self.tree.exists(item_iid):
                 # Apply numbering format
                 if item_id in numbering_dict:
@@ -916,8 +922,10 @@ class OutLineEditorApp:
                 else:
                     display_title = new_title
                 
+                print(f"Updating tree item {item_iid} with display title: {display_title}")  # Debug
                 self.tree.item(item_iid, text=display_title)
-
+                self.tree.update()  # Force visual refresh
+                
         except Exception as e:
             print(f"Error updating tree item: {e}")
 
@@ -1164,31 +1172,54 @@ class OutLineEditorApp:
         """Load the selected item and populate the editor with decrypted data."""
         if not self.is_authenticated or not self.encryption_manager:
             return
-                    
-        # Save previous selection's data if exists
-        if self.last_selected_item_id is not None:
-            self.save_data()
+
+        # If selection event is suppressed, ignore it
+        if self._suppress_selection_event:
+            return
 
         selected = self.tree.selection()
         if not selected:
             return
 
-        item_id = self.get_item_id(selected[0])
-        if item_id == self.last_selected_item_id:
+        current_item_id = self.get_item_id(selected[0])
+        if current_item_id == self.last_selected_item_id:
             return  # Don't reload if selecting the same item
-            
-        self.last_selected_item_id = item_id
 
         try:
+            # Save data for the previous item before loading new one
+            if self.last_selected_item_id is not None:
+                self._suppress_selection_event = True  # Suppress selection events
+                
+                # Get current title from entry before saving
+                current_title = self.title_entry.get().strip()
+                
+                self.save_data(refresh=False)  # Save without immediate refresh
+                
+                # Debug: Check what's in the database after save
+                self.db.cursor.execute(
+                    "SELECT title FROM sections WHERE id = ?", (self.last_selected_item_id,)
+                )
+                row = self.db.cursor.fetchone()
+                if row and row[0]:
+                    decrypted_title = self.encryption_manager.decrypt_string(row[0])
+                    self.update_tree_item(self.last_selected_item_id, decrypted_title)
+                
+                self._suppress_selection_event = False  # Re-enable selection events
+                self.previous_item_id = self.last_selected_item_id  # Track previous item
+
+            # Update selection tracking
+            self.last_selected_item_id = current_item_id
+
+            # Load the newly selected item's data
             self.db.encryption_manager = self.encryption_manager
             row = self.db.cursor.execute(
-                "SELECT title, questions FROM sections WHERE id = ?", (item_id,)
+                "SELECT title, questions FROM sections WHERE id = ?", (current_item_id,)
             ).fetchone()
 
-            self.title_entry.delete(0, tk.END)
-            self.questions_text.delete(1.0, tk.END)
-
             if row:
+                self.title_entry.delete(0, tk.END)
+                self.questions_text.delete(1.0, tk.END)
+
                 title, encrypted_questions = row
                 decrypted_title = self.encryption_manager.decrypt_string(title)
                 self.title_entry.insert(0, decrypted_title if decrypted_title else "")
@@ -1199,15 +1230,15 @@ class OutLineEditorApp:
                     )
                     parsed_questions = json.loads(decrypted_questions.strip())
                     self.questions_text.insert(tk.END, "\n".join(parsed_questions))
-            
+
         except Exception as e:
             print(f"Selection loading error: {e}")
             self.handle_authentication_failure("Decryption failed. Please verify your password.")
             return
 
     @timer
-    def save_data(self, event=None):
-        """Save data with authentication check and update tree item."""
+    def save_data(self, event=None, refresh=True):
+        """Save data with authentication check."""
         if not self.is_authenticated or self.last_selected_item_id is None:
             return
 
@@ -1221,12 +1252,12 @@ class OutLineEditorApp:
             questions = [q for q in questions if q]
             questions_json = json.dumps(questions)
 
-            # Update database
             self.db.update_section(self.last_selected_item_id, title, questions_json)
 
-            # Update the tree item text directly
-            self.update_tree_item(self.last_selected_item_id, title)
-            
+            if refresh:
+                self.refresh_tree()
+                self.select_item(self.last_selected_item_id)
+
         except Exception as e:
             print(f"Encryption Error: {e}")
             self.handle_authentication_failure("Encryption failed. Please verify your password.")
