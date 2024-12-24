@@ -2,9 +2,11 @@ import sqlite3
 import json
 import hashlib
 
+from typing import Dict, Set, Tuple
+import time
+
 from manager_encryption import EncryptionManager
 from config import DB_NAME, PASSWORD_MIN_LENGTH
-
 from utility import timer
 
 class DatabaseHandler:
@@ -16,6 +18,11 @@ class DatabaseHandler:
         self._numbering_cache = {}
         self._children_cache = {}
         self.setup_database()
+
+        # search cache
+        self._search_cache: Dict[str, Dict[str, str]] = {}
+        self._last_cache_update = 0
+        self._cache_lifetime = 300  # 5 minutes cache lifetime
         
         # Add indices for common queries
         self.cursor.execute("""
@@ -690,6 +697,117 @@ class DatabaseHandler:
         except Exception as e:
             print(f"Database error: {e}")
             raise
+
+
+    # Search related
+    def _should_refresh_cache(self) -> bool:
+        """Check if the cache needs refreshing based on time or modifications."""
+        return time.time() - self._last_cache_update > self._cache_lifetime
+
+    @timer
+    def refresh_search_cache(self, node_id=None):
+        """Refresh the search cache for specified node or entire database."""
+        if node_id:
+            # Load specific node and its children
+            sections = self._load_node_and_children(node_id)
+        else:
+            # Load all sections
+            self.cursor.execute("SELECT id, title, questions FROM sections")
+            sections = self.cursor.fetchall()
+
+        # Update cache with decrypted values
+        for section_id, title, questions in sections:
+            if str(section_id) not in self._search_cache:
+                self._search_cache[str(section_id)] = {
+                    'title': self.decrypt_safely(title, ''),
+                    'questions': self.decrypt_safely(questions, '[]')
+                }
+
+        self._last_cache_update = time.time()
+
+    @timer
+    def _load_node_and_children(self, node_id) -> list:
+        """Recursively load a node and all its descendants."""
+        result = []
+        self.cursor.execute("""
+            WITH RECURSIVE descendants AS (
+                SELECT id, title, questions, parent_id
+                FROM sections
+                WHERE id = ?
+                UNION ALL
+                SELECT s.id, s.title, s.questions, s.parent_id
+                FROM sections s
+                INNER JOIN descendants d ON s.parent_id = d.id
+            )
+            SELECT id, title, questions FROM descendants
+        """, (node_id,))
+        return self.cursor.fetchall()
+
+    @timer
+    def search_sections(self, query: str, node_id: int = None, global_search: bool = False) -> Tuple[Set[int], Set[int]]:
+        """
+        Enhanced search function supporting both local and global searches with caching.
+        """
+        if not query:
+            return set(), set()
+
+        # Always refresh cache for the appropriate scope
+        if global_search:
+            self.refresh_search_cache(None)  # Refresh entire database
+        elif node_id is not None:
+            self.refresh_search_cache(node_id)  # Refresh selected node and children
+        else:
+            # If no node selected and not global, search root level items
+            self.cursor.execute("SELECT id FROM sections WHERE parent_id IS NULL")
+            root_ids = [row[0] for row in self.cursor.fetchall()]
+            for root_id in root_ids:
+                self.refresh_search_cache(root_id)
+
+        matching_ids = set()
+        parent_ids = set()
+        
+        # Get relevant section IDs based on search scope
+        if global_search:
+            sections_to_search = self._search_cache.keys()
+        elif node_id is not None:
+            sections = self._load_node_and_children(node_id)
+            sections_to_search = [str(s[0]) for s in sections]
+        else:
+            # If no node selected and not global, search all root level items and their children
+            sections_to_search = self._search_cache.keys()
+
+        # Perform search on cached data
+        query = query.lower()
+        for section_id in sections_to_search:
+            cached_data = self._search_cache.get(section_id)
+            if not cached_data:
+                continue
+
+            if (query in cached_data['title'].lower() or 
+                query in cached_data['questions'].lower()):
+                matching_ids.add(int(section_id))
+
+        # Get all parent IDs for matching sections
+        if matching_ids:
+            placeholders = ','.join('?' * len(matching_ids))
+            self.cursor.execute(f"""
+                WITH RECURSIVE ancestors AS (
+                    SELECT id, parent_id
+                    FROM sections
+                    WHERE id IN ({placeholders})
+                    UNION ALL
+                    SELECT s.id, s.parent_id
+                    FROM sections s
+                    INNER JOIN ancestors a ON s.id = a.parent_id
+                    WHERE s.parent_id IS NOT NULL
+                )
+                SELECT DISTINCT parent_id
+                FROM ancestors
+                WHERE parent_id IS NOT NULL
+            """, list(matching_ids))
+            parent_ids = {row[0] for row in self.cursor.fetchall()}
+
+        return matching_ids, parent_ids
 
     def close(self):
         self.conn.close()

@@ -21,6 +21,9 @@ from config import (
     GLOBAL_FONT_FAMILY,
     GLOBAL_FONT_SIZE,
     GLOBAL_FONT,
+    NOTES_FONT_FAMILY,
+    NOTES_FONT_SIZE,
+    NOTES_FONT,
     DOC_FONT,
     H1_SIZE,
     H2_SIZE,
@@ -369,18 +372,33 @@ class OutLineEditorApp:
         self.tree.grid(row=1, column=0, sticky="nswe", pady=section_pady)
 
         self.tree.bind("<<TreeviewSelect>>", self.load_selected)  # Bind for handling selection
-        #self.tree.bind("<<TreeviewSelect>>", lambda event: (self.load_selected, self.refresh_tree()))  # can't go here
-        #self.tree.bind("<<TreeviewSelect>>", lambda event: (self.refresh_tree(), self.load_selected))  # can't go here
         self.tree.bind("<<TreeviewOpen>>", self.on_tree_expand)   # Bind for handling lazy loading on expand
         self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
 
+        # Search Frame with new controls
+        search_frame = ttk.Frame(self.tree_frame)
+        search_frame.grid(row=2, column=0, sticky="ew", pady=(5, 0), padx=label_padx)
+        search_frame.grid_columnconfigure(1, weight=1)  # Make the entry expand
 
-        ttk.Label(self.tree_frame, text="Search <Enter>", bootstyle="info").grid(
-            row=2, column=0, sticky="w", padx=label_padx, pady=(5, 0)
+        # Search label
+        ttk.Label(search_frame, text="Search", bootstyle="info").grid(
+            row=0, column=0, sticky="w", padx=(0, 5)
         )
-        self.search_entry = ttk.Entry(self.tree_frame, bootstyle="info")
-        self.search_entry.grid(row=3, column=0, sticky="ew", pady=entry_pady)
+
+        # Search entry
+        self.search_entry = ttk.Entry(search_frame, bootstyle="info")
+        self.search_entry.grid(row=0, column=1, sticky="ew", padx=5)
         self.search_entry.bind("<Return>", self.execute_search)
+
+        # Global search checkbox
+        self.global_search_var = tk.BooleanVar(value=False)
+        self.global_search_cb = ttk.Checkbutton(
+            search_frame,
+            text="Global",
+            variable=self.global_search_var,
+            bootstyle="info-round-toggle"
+        )
+        self.global_search_cb.grid(row=0, column=2, padx=5)
 
         # Editor Frame (Right)
         self.editor_frame = ttk.Frame(self.editor_tab)
@@ -415,7 +433,9 @@ class OutLineEditorApp:
             ("(o) →", self.move_right, "secondary"),
             ("(D)elete", self.delete_selected, "danger"),
         ]:
-            ttk.Button(self.editor_buttons, text=text, command=command, bootstyle=style).pack(side=tk.LEFT, padx=button_padx)
+            ttk.Button(self.editor_buttons, text=text, command=command, bootstyle=style).pack(
+                side=tk.LEFT, padx=button_padx
+            )
 
     def create_database_tab(self, label_padx, label_pady, frame_padx, frame_pady, button_padx, button_pady):
         # Configure the main grid for the Database tab
@@ -624,13 +644,25 @@ class OutLineEditorApp:
     @timer
     def populate_filtered_tree(self, parent_id, parent_node, ids_to_show, parents_to_show):
         """Recursively populate the treeview with filtered data."""
-        children = self.db.load_children(parent_id)  # Add `load_children` method in `DatabaseHandler`
-
-        for child in children:
-            if child[0] in ids_to_show or child[0] in parents_to_show:
-                node = self.tree.insert(parent_node, "end", child[0], text=child[1])
-                self.tree.see(node)  # Ensure the node is visible
-                self.populate_filtered_tree(child[0], node, ids_to_show, parents_to_show)
+        try:
+            children = self.db.load_children(parent_id)
+            for child_id, encrypted_title, _ in children:
+                # Only show items that match the search or are parents of matching items
+                if child_id in ids_to_show or child_id in parents_to_show:
+                    # Decrypt the title using cached value if available
+                    decrypted_title = None
+                    if str(child_id) in self.db._search_cache:
+                        decrypted_title = self.db._search_cache[str(child_id)]['title']
+                    else:
+                        decrypted_title = self.db.decrypt_safely(encrypted_title)
+                        
+                    node = self.tree.insert(parent_node, "end", f"I{child_id}", text=decrypted_title)
+                    self.tree.see(node)  # Ensure the node is visible
+                    
+                    # Recursively populate children
+                    self.populate_filtered_tree(child_id, node, ids_to_show, parents_to_show)
+        except Exception as e:
+            print(f"Error in populate_filtered_tree: {e}")
 
     @timer
     def move_up(self):
@@ -1419,26 +1451,54 @@ class OutLineEditorApp:
             self.conn.rollback()
 
 
+    # SEARCH
+
     @timer
     def execute_search(self, event=None):
-        """Filter TreeView to show only items matching the search query."""
+        """Enhanced search with support for local/global search."""
         query = self.search_entry.get().strip()
         if not query:
-            self.load_from_database()  # Reset tree if query is empty
+            self.load_from_database()
             return
 
-        ids_to_show, parents_to_show = self.db.search_sections(query)
+        try:
+            global_search = self.global_search_var.get()
+            if global_search:
+                confirm = messagebox.askyesno(
+                    "Global Search",
+                    "Global search requires decrypting all records and may take several minutes. Continue?"
+                )
+                if not confirm:
+                    return
 
-        # Generate numbering for all items
-        numbering_dict = self.db.generate_numbering()
+            # Get current selection for local search
+            selected = self.tree.selection()
+            node_id = None
+            if selected and not global_search:
+                node_id = self.get_item_id(selected[0])
 
-        # Clear and repopulate the treeview
-        self.tree.delete(*self.tree.get_children())
-        self.populate_filtered_tree(None, "", ids_to_show, parents_to_show)
+            # Perform search
+            ids_to_show, parents_to_show = self.db.search_sections(
+                query,
+                node_id=node_id,
+                global_search=global_search
+            )
 
-        # Apply consistent numbering
-        self.calculate_numbering(numbering_dict)
-        
+            if not ids_to_show and not parents_to_show:
+                messagebox.showinfo("Search Results", "No matches found.")
+                return
+
+            # Clear and repopulate tree
+            self.tree.delete(*self.tree.get_children())
+            self.populate_filtered_tree(None, "", ids_to_show, parents_to_show)
+
+            # Apply numbering
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+
+        except Exception as e:
+            print(f"Error in execute_search: {e}")
+            messagebox.showerror("Search Error", f"An error occurred while searching: {str(e)}")
 
     # UTILITY
 
