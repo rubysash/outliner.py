@@ -5,7 +5,7 @@ THEME = (
 
 PASSWORD_MIN_LENGTH = 3
 
-VERSION = "0.27"
+VERSION = "0.31"
 DB_NAME = "outline.db"  # default db it will look for or create
 GLOBAL_FONT_FAMILY = "Helvetica"  # Set the global font family
 GLOBAL_FONT_SIZE = 12  # Set the global font size
@@ -25,19 +25,32 @@ P_SIZE = 10
 INDENT_SIZE = 0.25
 
 
-# Timer
+# Timer Settings
+TIMER_ENABLED = True                  # Enable/disable all performance monitoring
+MIN_TIME_IN_MS_THRESHOLD = 1.0        # Only show operations taking longer than this
+MAX_TIME_IN_MS_THRESHOLD = 2000.0     # Don't show operations taking longer than this
+
+# Timer color thresholds (only for operations under MAX_TIME_IN_MS_THRESHOLD)
 COLOR_THRESHOLDS = {
-    "red": 100,       # Above 000 ms -> RED
+    "red": 100,       # Above 100 ms -> RED
     "orange": 50,     # 50-100 ms -> ORANGE
     "yellow": 20,     # 20-50 ms -> YELLOW
-    "green": 10         # Below 20 ms -> GREEN
+    "green": 1        # Below 20 ms -> GREEN
 }
 
 '''
 Versions
-.27 - Fonts for Notes section
+.31 - DEV - Export specific sections
 
-.26 - fixed search
+.30 - STABLE. Adjusted initialize password to exit if cancelled
+
+.29 - STABLE. Adjusted verbosity of timer
+
+.28 - STABLE. New DB cache and optimizations
+
+.27 - STABLE. Fonts for Notes section
+
+.26 - STABLE. fixed search
 Removed the old search controls and replaced them with a new search frame
 Added proper grid layout for the search components
 Added the global search checkbox with the BooleanVar
@@ -48,5 +61,5 @@ Treeview shows plaintext vs encrypted (bug fix)
 
 
 
-.25 - Stable, movement works, lazy loading, cached keys, search not working
+.25 - DEV. movement works, lazy loading, cached keys, search not working
 '''

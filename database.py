@@ -36,34 +36,62 @@ class DatabaseHandler:
 
     @timer
     def setup_database(self):
-        """
-        Initialize the database schema, including sections and settings tables.
-        """
-        # Create the sections table
-        self.cursor.execute(
-            """
+        """Initialize database schema with core optimizations."""
+        
+        # Set PRAGMA settings before any other operations
+        self.cursor.execute("PRAGMA journal_mode=WAL")
+        self.cursor.execute("PRAGMA synchronous=NORMAL")
+        
+        # Begin transaction for schema changes
+        self.cursor.execute("BEGIN")
+        
+        # Create sections table
+        self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS sections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 parent_id INTEGER,
                 title TEXT DEFAULT '',
-                type TEXT, -- 'header', 'category', 'subcategory', or 'subheader'
-                questions TEXT DEFAULT '[]', -- JSON array of questions
-                placement INTEGER NOT NULL CHECK(placement > 0) -- Ensure placement is a positive integer
+                type TEXT,
+                questions TEXT DEFAULT '[]',
+                placement INTEGER NOT NULL CHECK(placement > 0)
             )
-            """
-        )
+        """)
         
-        # Create the settings table
-        self.cursor.execute(
-            """
+        # Create settings table
+        self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-            """
-        )
+        """)
         
-        self.conn.commit()
+        # Create optimized indices
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sections_tree 
+            ON sections(parent_id, placement, type)
+            WHERE parent_id IS NOT NULL
+        """)
+        
+        self.cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sections_root
+            ON sections(placement, type)
+            WHERE parent_id IS NULL
+        """)
+        
+        # Add deletion trigger
+        self.cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS maintain_placement_delete
+            BEFORE DELETE ON sections
+            FOR EACH ROW
+            BEGIN
+                UPDATE sections 
+                SET placement = placement - 1 
+                WHERE parent_id IS OLD.parent_id 
+                AND placement > OLD.placement;
+            END;
+        """)
+        
+        self.cursor.execute("COMMIT")
 
     @timer
     def set_password(self, password):

@@ -1,3 +1,4 @@
+import sys
 import ttkbootstrap as ttk
 from ttkbootstrap import Style
 from tkinter import messagebox, simpledialog
@@ -198,6 +199,7 @@ class OutLineEditorApp:
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    @timer
     def initialize_password(self):
         """
         Handles password logic: prompts user for existing password or sets a new one.
@@ -217,7 +219,10 @@ class OutLineEditorApp:
                     show="*",
                 )
                 if not password:
-                    raise ValueError("Password entry canceled.")
+                    # Exit the application if password entry is canceled
+                    self.root.destroy()  # Close the main window
+                    sys.exit()  # Exit the process entirely
+
                 if self.db.validate_password(password):
                     self.encryption_manager = EncryptionManager(password=password)
                     break
@@ -231,13 +236,20 @@ class OutLineEditorApp:
                     "No password found. Set a new password (min. 14 characters):",
                     show="*",
                 )
-                if not password or len(password) < PASSWORD_MIN_LENGTH:
+                if not password:
+                    # Exit the application if password entry is canceled
+                    self.root.destroy()  # Close the main window
+                    sys.exit()  # Exit the process entirely
+
+                if len(password) < PASSWORD_MIN_LENGTH:
                     messagebox.showerror("Invalid Password", "Password must be at least 14 characters.")
                     continue
+
                 self.db.set_password(password)
                 self.encryption_manager = EncryptionManager(password=password)
                 messagebox.showinfo("Success", "Password has been set.")
                 break
+
 
     def handle_authentication_failure(self, message="Authentication failed"):
         """Handle failed authentication attempts."""
@@ -342,12 +354,12 @@ class OutLineEditorApp:
                     
                 except Exception as e:
                     print(f"Validation error: {e}")
-                    messagebox.showerror("Error", f"Failed to validate password: {e}")
+                    messagebox.showerror("Error", f"345 Failed to validate password: {e}")
                     continue
 
         except Exception as e:
             print(f"Database loading error: {e}")
-            messagebox.showerror("Error", f"Failed to load database: {e}")
+            messagebox.showerror("Error", f"350. Failed to load database: {e}")
             self.handle_authentication_failure("Failed to authenticate with the loaded database.")
     
     # TABS
@@ -415,7 +427,7 @@ class OutLineEditorApp:
         ttk.Label(self.editor_frame, text="Questions Notes and Details", bootstyle="info").grid(
             row=2, column=0, sticky="w", padx=label_padx, pady=label_pady
         )
-        self.questions_text = tk.Text(self.editor_frame, height=15)
+        self.questions_text = tk.Text(self.editor_frame, height=15, font=NOTES_FONT)
         self.questions_text.grid(row=3, column=0, sticky="nswe", pady=section_pady)
 
         # Buttons Row (Bottom)
@@ -1104,11 +1116,11 @@ class OutLineEditorApp:
     def load_database_from_file(self, db_path):
         """Load an existing database file and verify its schema and password."""
         try:
-            # First check if the file exists and is a valid SQLite database
+            # Verify the database file
             temp_conn = sqlite3.connect(db_path)
             temp_cursor = temp_conn.cursor()
             
-            # Check for settings table and password
+            # Check if the settings table exists
             temp_cursor.execute(
                 """
                 SELECT name FROM sqlite_master 
@@ -1119,7 +1131,7 @@ class OutLineEditorApp:
                 temp_conn.close()
                 raise ValueError("Invalid database: 'settings' table not found.")
                 
-            # Check for password in settings
+            # Check for a stored password
             temp_cursor.execute(
                 "SELECT value FROM settings WHERE key = ?",
                 ("password",)
@@ -1127,41 +1139,46 @@ class OutLineEditorApp:
             stored_password = temp_cursor.fetchone()
             temp_conn.close()
             
-            # If there's a stored password, prompt for it
             if stored_password:
-                password = simpledialog.askstring(
-                    "Database Password",
-                    "Enter the password for this database:",
-                    show="*"
-                )
-                if not password:
-                    raise ValueError("Password entry cancelled.")
+                # Prompt user for the password
+                while True:
+                    password = simpledialog.askstring(
+                        "Database Password",
+                        "Enter the password for this database:",
+                        show="*"
+                    )
+                    if not password:
+                        # Close the application entirely if canceled
+                        self.root.destroy()  # Close the main application window
+                        sys.exit()  # Ensure the process exits completely
+
+                    # Create a temporary encryption manager to verify the password
+                    temp_encryption_manager = EncryptionManager(password)
+
+                    # Reconnect to verify the password
+                    temp_conn = sqlite3.connect(db_path)
+                    temp_cursor = temp_conn.cursor()
+                    stored_hash = temp_cursor.execute(
+                        "SELECT value FROM settings WHERE key = ?",
+                        ("password",)
+                    ).fetchone()[0]
                     
-                # Create temporary encryption manager to validate password
-                temp_encryption_manager = EncryptionManager(password)
-                
-                # Reopen connection to verify password
-                temp_conn = sqlite3.connect(db_path)
-                temp_cursor = temp_conn.cursor()
-                stored_hash = temp_cursor.execute(
-                    "SELECT value FROM settings WHERE key = ?",
-                    ("password",)
-                ).fetchone()[0]
-                
-                if hashlib.sha256(password.encode()).hexdigest() != stored_hash:
-                    temp_conn.close()
-                    raise ValueError("Invalid password.")
-                
-                # Password verified, update the encryption manager
-                self.encryption_manager = temp_encryption_manager
-            
-            # Close existing connection and open new one
+                    if hashlib.sha256(password.encode()).hexdigest() != stored_hash:
+                        temp_conn.close()
+                        messagebox.showerror("Invalid Password", "The password is incorrect. Try again.")
+                        continue
+
+                    # Password verified
+                    self.encryption_manager = temp_encryption_manager
+                    break
+
+            # Replace the current database connection
             self.conn.close()
             self.db_name = db_path
             self.conn = sqlite3.connect(self.db_name)
             self.cursor = self.conn.cursor()
-            
-            # Verify sections table exists
+
+            # Ensure the schema is valid
             self.cursor.execute(
                 """
                 SELECT name FROM sqlite_master 
@@ -1170,14 +1187,16 @@ class OutLineEditorApp:
             )
             if not self.cursor.fetchone():
                 raise ValueError("Invalid database: 'sections' table not found.")
-                
-            # Reinitialize schema if needed
+
+            # Set up the database if needed
             self.setup_database()
 
         except sqlite3.DatabaseError:
             raise RuntimeError("The selected file is not a valid SQLite database.")
         except Exception as e:
-            raise RuntimeError(f"An error occurred while loading the database: {e}")
+            messagebox.showerror("Error", f"An error occurred: {e}")
+            self.root.destroy()  # Close the main application window
+            sys.exit()  # Terminate the application
 
     @timer
     def load_selected(self, event):
