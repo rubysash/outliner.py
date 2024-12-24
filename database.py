@@ -314,9 +314,101 @@ class DatabaseHandler:
             raise RuntimeError(f"Failed to reset database: {e}")
 
     @timer
-    def initialize_placement(self):
-        """Assign default placement for existing rows if placement is NULL."""
+    def fix_all_placements(self):
+        """Fix placement values to ensure they are consecutive within each level."""
         try:
+            # Start transaction
+            self.cursor.execute("BEGIN")
+            
+            # First fix root level sections to be consecutive
+            self.cursor.execute(
+                """
+                WITH RankedSections AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (ORDER BY placement, id) as new_placement
+                    FROM sections
+                    WHERE parent_id IS NULL
+                )
+                UPDATE sections
+                SET placement = (
+                    SELECT new_placement
+                    FROM RankedSections
+                    WHERE RankedSections.id = sections.id
+                )
+                WHERE parent_id IS NULL
+                """
+            )
+            
+            # Then fix children for each parent to be consecutive
+            self.cursor.execute(
+                "SELECT DISTINCT parent_id FROM sections WHERE parent_id IS NOT NULL"
+            )
+            parent_ids = [row[0] for row in self.cursor.fetchall()]
+            
+            for parent_id in parent_ids:
+                self.cursor.execute(
+                    """
+                    WITH RankedChildren AS (
+                        SELECT id,
+                               ROW_NUMBER() OVER (ORDER BY placement, id) as new_placement
+                        FROM sections
+                        WHERE parent_id = ?
+                    )
+                    UPDATE sections
+                    SET placement = (
+                        SELECT new_placement
+                        FROM RankedChildren
+                        WHERE RankedChildren.id = sections.id
+                    )
+                    WHERE parent_id = ?
+                    """,
+                    (parent_id, parent_id)
+                )
+            
+            # Commit the transaction
+            self.conn.commit()
+            
+            # Clear caches since we modified the structure
+            self.invalidate_caches()
+            
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error in fix_all_placements: {e}")
+            raise
+
+    @timer
+    def fix_placement(self, parent_id):
+        """Fix placement values for children of a specific parent."""
+        try:
+            self.cursor.execute(
+                """
+                WITH RankedChildren AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (ORDER BY placement, id) as new_placement
+                    FROM sections
+                    WHERE parent_id = ?
+                )
+                UPDATE sections
+                SET placement = (
+                    SELECT new_placement
+                    FROM RankedChildren
+                    WHERE RankedChildren.id = sections.id
+                )
+                WHERE parent_id = ?
+                """,
+                (parent_id, parent_id)
+            )
+            self.conn.commit()
+            self.invalidate_caches()
+        except Exception as e:
+            print(f"Error in fix_placement: {e}")
+            self.conn.rollback()
+
+    @timer
+    def initialize_placement(self):
+        """Initializes and fixes placement values for the entire database."""
+        try:
+            # First set initial placements based on hierarchy
             self.cursor.execute(
                 """
                 WITH RECURSIVE section_hierarchy(id, parent_id, level) AS (
@@ -332,15 +424,14 @@ class DatabaseHandler:
             )
             for row in self.cursor.fetchall():
                 self.cursor.execute(
-                    "SELECT placement FROM sections WHERE id = ?", (row[0],)
+                    "UPDATE sections SET placement = ? WHERE id = ?",
+                    (row[1], row[0]),
                 )
-                existing_placement = self.cursor.fetchone()[0]
-                if existing_placement is None:
-                    self.cursor.execute(
-                        "UPDATE sections SET placement = ? WHERE id = ?",
-                        (row[1], row[0]),
-                    )
             self.conn.commit()
+            
+            # Then ensure they're consecutive using fix_all_placements
+            self.fix_all_placements()
+            
         except Exception as e:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
@@ -389,26 +480,6 @@ class DatabaseHandler:
             self.conn.rollback()
         except Exception as e:
             print(f"Error in swap_placement: {e}")
-            self.conn.rollback()
-
-    @timer
-    def fix_placement(self, parent_id):
-        """Ensure all children of a parent have sequential placement values."""
-        try:
-            self.cursor.execute(
-                "SELECT id FROM sections WHERE parent_id = ? ORDER BY placement, id",
-                (parent_id,),
-            )
-            children = self.cursor.fetchall()
-
-            for index, (child_id,) in enumerate(children, start=1):
-                self.cursor.execute(
-                    "UPDATE sections SET placement = ? WHERE id = ?", (index, child_id)
-                )
-
-            self.conn.commit()
-        except Exception as e:
-            print(f"Error in fix_placement: {e}")
             self.conn.rollback()
 
     @timer

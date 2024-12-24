@@ -181,7 +181,7 @@ class OutLineEditorApp:
         # Ensure the database is initialized properly
         self.db.setup_database()
         self.db.initialize_placement()
-
+        
         # State to track the last selected item
         self.last_selected_item_id = None
 
@@ -263,66 +263,6 @@ class OutLineEditorApp:
                 button.configure(state=state)
         for button in self.exports_buttons.winfo_children():
             button.configure(state=state)
-
-    @timer
-    def add_section(self, section_type, parent_type=None, title_prefix="Section"):
-        """
-        Add a new section (H1, H2, H3, H4) to the tree with proper encryption.
-        """
-        if not self.is_authenticated or not self.encryption_manager:
-            messagebox.showerror("Error", "Not authenticated. Please verify your password.")
-            return
-
-        previous_selection = self.tree.selection()
-
-        if parent_type:
-            # Validate the parent selection
-            if not previous_selection or self.get_item_type(previous_selection[0]) != parent_type:
-                messagebox.showerror(
-                    "Error", f"Please select a valid {parent_type} to add a {section_type}."
-                )
-                return
-            parent_id = self.get_item_id(previous_selection[0])
-        else:
-            parent_id = None
-
-        # Calculate the next placement value for the new section
-        self.db.cursor.execute(
-            """
-            SELECT COALESCE(MAX(placement), 0) + 1
-            FROM sections
-            WHERE parent_id IS ?
-            """,
-            (parent_id,)
-        )
-        next_placement = self.db.cursor.fetchone()[0]
-
-        # Ensure placement is positive
-        if next_placement <= 0:
-            next_placement = 1
-
-        title = f"{title_prefix} {next_placement}"
-
-        try:
-            # Add the section using the database handler with current encryption manager
-            self.db.encryption_manager = self.encryption_manager
-            section_id = self.db.add_section(title, section_type, parent_id, next_placement)
-
-            # Reload the treeview and reselect the parent if applicable
-            self.load_from_database()
-            if previous_selection:
-                self.select_item(previous_selection[0])
-
-            # Update numbering after adding the section
-            numbering_dict = self.db.generate_numbering()
-            self.calculate_numbering(numbering_dict)
-
-            return section_id
-
-        except Exception as e:
-            print(f"Error adding section: {e}")
-            messagebox.showerror("Error", "Failed to add section. Please verify your password.")
-            return None
 
     @timer
     def handle_load_database(self):
@@ -541,6 +481,115 @@ class OutLineEditorApp:
     # TREE MANIPULATION
 
     @timer
+    def add_section(self, section_type, parent_type=None, title_prefix="Section"):
+        """
+        Add a new section (H1, H2, H3, H4) to the tree with proper encryption.
+        """
+        if not self.is_authenticated or not self.encryption_manager:
+            messagebox.showerror("Error", "Not authenticated. Please verify your password.")
+            return
+
+        previous_selection = self.tree.selection()
+
+        if parent_type:
+            if not previous_selection or self.get_item_type(previous_selection[0]) != parent_type:
+                messagebox.showerror(
+                    "Error", f"Please select a valid {parent_type} to add a {section_type}."
+                )
+                return
+            parent_id = self.get_item_id(previous_selection[0])
+        else:
+            parent_id = None
+
+        try:
+            # Calculate the next placement value
+            self.db.cursor.execute(
+                """
+                SELECT COALESCE(MAX(placement), 0) + 1
+                FROM sections
+                WHERE parent_id IS ?
+                """,
+                (parent_id,)
+            )
+            next_placement = self.db.cursor.fetchone()[0]
+            if next_placement <= 0:
+                next_placement = 1
+
+            title = f"{title_prefix} {next_placement}"
+            
+            # Add the section to database
+            section_id = self.db.add_section(title, section_type, parent_id, next_placement)
+            
+            # Force clear any caching
+            self.db.invalidate_caches()
+            
+            # Clear the tree and reload
+            self.tree.delete(*self.tree.get_children())
+            self.load_from_database()  # This includes populating the tree
+            
+            # Select and make visible the new item
+            new_item_id = f"I{section_id}"
+            if self.tree.exists(new_item_id):
+                self.tree.selection_set(new_item_id)
+                self.tree.focus(new_item_id)
+                self.tree.see(new_item_id)
+            
+            # Force an immediate update of numbering
+            self.db.conn.commit()  # Use conn.commit() instead of cursor.commit()
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+            
+            return section_id
+
+        except Exception as e:
+            print(f"Error adding section: {e}")
+            return None
+
+    @timer
+    def refresh_tree(self, event=None):
+        """
+        Reload the TreeView to reflect database changes while preserving expansion state and selection.
+        """
+        try:
+            # Store currently selected item before refresh
+            selected = self.tree.selection()
+            selected_db_id = self.get_item_id(selected[0]) if selected else None
+            
+            # Get currently expanded items before refresh
+            expanded_db_ids = self.get_expanded_items()
+            
+            # Temporarily unbind selection event
+            if self._selection_binding:
+                self.tree.unbind("<<TreeviewSelect>>", self._selection_binding)
+            
+            # Clear the tree and caches
+            self.tree.delete(*self.tree.get_children())
+            self.db.invalidate_caches()  # Force cache invalidation on refresh
+            
+            # Reload the tree
+            self.load_from_database()
+            
+            # Restore expansion state
+            self.restore_expansion_state(expanded_db_ids)
+            
+            # Update numbering with fresh numbering
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+            
+            # Restore selection if possible
+            if selected_db_id is not None:
+                self.select_item(selected_db_id)
+            
+            # Rebind selection event
+            self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+            
+        except Exception as e:
+            print(f"Error in refresh_tree: {e}")
+            # Ensure event is rebound even if there's an error
+            if not self._selection_binding:
+                self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+
+    @timer
     def on_tree_expand(self, event):
         """
         Handle TreeView node expansion and load child nodes lazily.
@@ -590,72 +639,53 @@ class OutLineEditorApp:
             return
 
         item_id = self.get_item_id(selected[0])
-        parent_id = self.tree.parent(selected[0]) or None
+        parent_node = self.tree.parent(selected[0])
+        parent_db_id = self.get_item_id(parent_node) if parent_node else None
 
-        if parent_id is None:
-            # First, let's see all H1 sections and their placements
+        try:
+            # Fix consecutive placements first
+            if parent_db_id is None:
+                self.db.fix_all_placements()
+            else:
+                self.db.fix_placement(parent_db_id)
+
+            # Get current placement
             self.db.cursor.execute(
-                "SELECT id, placement, title FROM sections WHERE parent_id IS NULL ORDER BY placement"
+                "SELECT placement FROM sections WHERE id = ? AND parent_id IS ?",
+                (item_id, parent_db_id)
             )
-            all_h1s = self.db.cursor.fetchall()
+            current_placement = self.db.cursor.fetchone()
             
-            # Handle H1 sections - direct placement manipulation
-            query = """
-                SELECT s1.id, s1.placement, s2.id as prev_id, s2.placement as prev_placement
-                FROM sections s1
-                LEFT JOIN sections s2 ON s2.parent_id IS NULL 
-                    AND s2.placement < s1.placement
-                WHERE s1.id = ?
-                ORDER BY s2.placement DESC
-                LIMIT 1
-                """
-            
-            self.db.cursor.execute(query, (item_id,))
-            result = self.db.cursor.fetchone()
-            
-            if result and result[2] is not None:  # If there's a previous item
-                # Direct swap of placement values
-                update_query = """
-                    UPDATE sections 
-                    SET placement = CASE
-                        WHEN id = ? THEN ?
-                        WHEN id = ? THEN ?
-                    END
-                    WHERE id IN (?, ?)
-                    """
-                params = (item_id, result[3], result[2], result[1], item_id, result[2])
-                
-                self.db.cursor.execute(update_query, params)
-                self.db.conn.commit()
-                
-        else:
-            # Handle child sections - we need to handle the "I" prefix here
-            parent_db_id = self.get_item_id(parent_id)  # Convert parent ID to database ID
-            self.db.cursor.execute(
-                "SELECT id, placement FROM sections WHERE parent_id = ? ORDER BY placement",
-                (parent_db_id,),
-            )
-            siblings = self.db.cursor.fetchall()
-            sibling_ids = [s[0] for s in siblings]  # These are database IDs
-            
-            try:
-                current_index = sibling_ids.index(item_id)
-                if current_index > 0:
-                    prev_item_id = sibling_ids[current_index - 1]
-                    self.swap_placement(item_id, prev_item_id)
-                    self.db.fix_placement(parent_db_id)
-            except ValueError as e:
-                print(f"Error finding item in siblings: {e}")
+            if not current_placement:
                 return
+                
+            current_placement = current_placement[0]
+            
+            if current_placement > 1:  # Can only move up if not already at top
+                # Swap with the item above
+                self.db.cursor.execute(
+                    """
+                    UPDATE sections
+                    SET placement = CASE 
+                        WHEN placement = ? THEN ? 
+                        WHEN placement = ? THEN ? 
+                    END
+                    WHERE parent_id IS ? AND placement IN (?, ?)
+                    """,
+                    (current_placement, current_placement - 1,
+                     current_placement - 1, current_placement,
+                     parent_db_id, current_placement, current_placement - 1)
+                )
+                self.db.conn.commit()
 
-        self.refresh_tree()
-        
-        # Recalculate numbering after moving the node
-        numbering_dict = self.db.generate_numbering()
-        self.calculate_numbering(numbering_dict)
-        
-        # Select using the proper ID format
-        self.select_item(f"I{item_id}")
+            # Force cache invalidation and refresh
+            self.db.invalidate_caches()
+            self.refresh_tree()
+            self.select_item(f"I{item_id}")
+            
+        except Exception as e:
+            print(f"Error in move_up: {e}")
+            self.db.conn.rollback()
 
     @timer
     def move_down(self):
@@ -664,67 +694,61 @@ class OutLineEditorApp:
             return
 
         item_id = self.get_item_id(selected[0])
-        parent_id = self.tree.parent(selected[0]) or None
+        parent_node = self.tree.parent(selected[0])
+        parent_db_id = self.get_item_id(parent_node) if parent_node else None
 
-        if parent_id is None:
-            # Handle root-level (H1) sections
+        try:
+            # Fix consecutive placements first
+            if parent_db_id is None:
+                self.db.fix_all_placements()
+                self.db.cursor.execute(
+                    "SELECT MAX(placement) FROM sections WHERE parent_id IS NULL"
+                )
+            else:
+                self.db.fix_placement(parent_db_id)
+                self.db.cursor.execute(
+                    "SELECT MAX(placement) FROM sections WHERE parent_id = ?",
+                    (parent_db_id,)
+                )
+            max_placement = self.db.cursor.fetchone()[0]
+
+            # Get current placement
             self.db.cursor.execute(
-                "SELECT id, placement, title FROM sections WHERE parent_id IS NULL ORDER BY placement"
+                "SELECT placement FROM sections WHERE id = ? AND parent_id IS ?",
+                (item_id, parent_db_id)
             )
-            all_h1s = self.db.cursor.fetchall()
+            current_placement = self.db.cursor.fetchone()
             
-            # Query for the next sibling
-            query = """
-                SELECT s1.id, s1.placement, s2.id as next_id, s2.placement as next_placement
-                FROM sections s1
-                LEFT JOIN sections s2 ON s2.parent_id IS NULL 
-                    AND s2.placement > s1.placement
-                WHERE s1.id = ?
-                ORDER BY s2.placement ASC
-                LIMIT 1
-            """
-            
-            self.db.cursor.execute(query, (item_id,))
-            result = self.db.cursor.fetchone()
-            
-            if result and result[2] is not None:  # If there's a next item
-                # Swap placements
-                update_query = """
-                    UPDATE sections 
-                    SET placement = CASE
-                        WHEN id = ? THEN ?
-                        WHEN id = ? THEN ?
-                    END
-                    WHERE id IN (?, ?)
-                """
-                params = (item_id, result[3], result[2], result[1], item_id, result[2])
-                
-                self.db.cursor.execute(update_query, params)
-                self.db.conn.commit()
-        else:
-            # Handle child sections with proper ID conversion
-            parent_db_id = self.get_item_id(parent_id)
-            self.db.cursor.execute(
-                "SELECT id, placement FROM sections WHERE parent_id = ? ORDER BY placement",
-                (parent_db_id,),
-            )
-            siblings = self.db.cursor.fetchall()
-            sibling_ids = [s[0] for s in siblings]  # These are database IDs
-            
-            try:
-                current_index = sibling_ids.index(item_id)
-                if current_index < len(sibling_ids) - 1:
-                    next_item_id = sibling_ids[current_index + 1]
-                    self.swap_placement(item_id, next_item_id)
-                    self.db.fix_placement(parent_db_id)
-            except ValueError as e:
-                print(f"Error finding item in siblings: {e}")
+            if not current_placement:
                 return
+                
+            current_placement = current_placement[0]
 
-        self.refresh_tree()
-        numbering_dict = self.db.generate_numbering()
-        self.calculate_numbering(numbering_dict)
-        self.select_item(f"I{item_id}")
+            if current_placement < max_placement:  # Can only move down if not at bottom
+                # Swap with the item below
+                self.db.cursor.execute(
+                    """
+                    UPDATE sections
+                    SET placement = CASE 
+                        WHEN placement = ? THEN ? 
+                        WHEN placement = ? THEN ? 
+                    END
+                    WHERE parent_id IS ? AND placement IN (?, ?)
+                    """,
+                    (current_placement, current_placement + 1,
+                     current_placement + 1, current_placement,
+                     parent_db_id, current_placement, current_placement + 1)
+                )
+                self.db.conn.commit()
+
+            # Force cache invalidation and refresh
+            self.db.invalidate_caches()
+            self.refresh_tree()
+            self.select_item(f"I{item_id}")
+            
+        except Exception as e:
+            print(f"Error in move_down: {e}")
+            self.db.conn.rollback()
 
     @timer
     def move_left(self):
@@ -826,73 +850,39 @@ class OutLineEditorApp:
     def calculate_numbering(self, numbering_dict):
         """
         Assign hierarchical numbering to tree nodes based on the provided numbering dictionary.
-        Skip dummy nodes during numbering.
-        """
-        for node in self.tree.get_children():
-            self.apply_numbering_recursive(node, numbering_dict)
-
-    @timer
-    def apply_numbering_recursive(self, node, numbering_dict):
-        """
-        Apply numbering to a node and its children recursively.
-        Skip dummy nodes during numbering.
-        """
-        # Skip dummy nodes
-        if "hidden" in self.tree.item(node, "tags"):
-            return
-            
-        node_id = self.get_item_id(node)
-        if node_id is not None and node_id in numbering_dict:
-            logical_title = self.tree.item(node, "text").split(". ", 1)[-1]  # Remove existing numbering
-            display_title = f"{numbering_dict[node_id]}. {logical_title}"
-            self.tree.item(node, text=display_title)
-
-        # Process children recursively
-        for child in self.tree.get_children(node):
-            self.apply_numbering_recursive(child, numbering_dict)
-
-    @timer
-    def refresh_tree(self, event=None):
-        """
-        Reload the TreeView to reflect database changes while preserving expansion state and selection.
         """
         try:
-            # Store currently selected item before refresh
-            selected = self.tree.selection()
-            selected_db_id = self.get_item_id(selected[0]) if selected else None
-            
-            # Get currently expanded items before refresh
-            expanded_db_ids = self.get_expanded_items()
-            
-            # Temporarily unbind selection event
-            if self._selection_binding:
-                self.tree.unbind("<<TreeviewSelect>>", self._selection_binding)
-            
-            # Clear the tree
-            self.tree.delete(*self.tree.get_children())
-            
-            # Reload the tree
-            self.load_from_database()
-            
-            # Restore expansion state
-            self.restore_expansion_state(expanded_db_ids)
-            
-            # Update numbering
-            numbering_dict = self.db.generate_numbering()
-            self.calculate_numbering(numbering_dict)
-            
-            # Restore selection if possible
-            if selected_db_id is not None:
-                self.select_item(selected_db_id)
-            
-            # Rebind selection event
-            self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
-            
+            for node_id in self.tree.get_children():
+                self._apply_numbering_recursive(node_id, numbering_dict)
         except Exception as e:
-            print(f"Error in refresh_tree: {e}")
-            # Ensure event is rebound even if there's an error
-            if not self._selection_binding:
-                self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+            print(f"Error in calculate_numbering: {e}")
+
+    @timer
+    def _apply_numbering_recursive(self, node_id, numbering_dict):
+        """
+        Apply numbering to a node and its children recursively.
+        """
+        try:
+            # Skip hidden nodes
+            if "hidden" in self.tree.item(node_id, "tags"):
+                return
+
+            db_id = self.get_item_id(node_id)
+            if db_id is not None and db_id in numbering_dict:
+                current_text = self.tree.item(node_id, "text")
+                if '. ' in current_text:
+                    base_text = current_text.split('. ', 1)[1]
+                else:
+                    base_text = current_text
+                
+                new_text = f"{numbering_dict[db_id]}. {base_text}"
+                self.tree.item(node_id, text=new_text)
+
+            # Process children
+            for child_id in self.tree.get_children(node_id):
+                self._apply_numbering_recursive(child_id, numbering_dict)
+        except Exception as e:
+            print(f"Error in _apply_numbering_recursive: {e}")
 
     @timer
     def update_tree_item(self, item_id, new_title):
@@ -1388,13 +1378,6 @@ class OutLineEditorApp:
         except Exception as e:
             print(f"Error in swap_placement: {e}")
 
-    def fix_placement(self, parent_id):
-        """Ensure all children of a parent have sequential placement values."""
-        try:
-            self.db.fix_placement(parent_id)
-        except Exception as e:
-            print(f"Error in fix_placement: {e}")
-
     def get_item_type(self, node):
         """Fetch the type of the selected node using DatabaseHandler."""
         try:
@@ -1403,6 +1386,38 @@ class OutLineEditorApp:
         except Exception as e:
             print(f"Error in get_item_type: {e}")
             return None
+
+    @timer
+    def initialize_placement(self):
+        """Assign default placement for existing rows and ensure they are consecutive."""
+        try:
+            self.cursor.execute(
+                """
+                WITH RECURSIVE section_hierarchy(id, parent_id, level) AS (
+                    SELECT id, parent_id, 0 FROM sections WHERE parent_id IS NULL
+                    UNION ALL
+                    SELECT s.id, s.parent_id, h.level + 1
+                    FROM sections s
+                    INNER JOIN section_hierarchy h ON s.parent_id = h.id
+                )
+                SELECT id, ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY id) AS new_placement
+                FROM section_hierarchy
+                """
+            )
+            for row in self.cursor.fetchall():
+                self.cursor.execute(
+                    "UPDATE sections SET placement = ? WHERE id = ?",
+                    (row[1], row[0]),
+                )
+            self.conn.commit()
+            
+            # After initializing, fix to ensure they're consecutive
+            self.fix_all_placements()
+            
+        except Exception as e:
+            print(f"Error in initialize_placement: {e}")
+            self.conn.rollback()
+
 
     @timer
     def execute_search(self, event=None):
