@@ -67,7 +67,6 @@ class PasswordChangeDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         
-        
     def change(self):
         current = self.current_password.get()
         new = self.new_password.get()
@@ -98,6 +97,9 @@ class OutLineEditorApp:
         self.style = Style(THEME)
         self.root = root
         self.root.title(f"Outline Editor v{VERSION}")
+        
+        self._suppress_selection_event = False
+        self._selection_binding = None  # Store the event binding
 
         # Set global font scaling using tkinter.font
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -189,8 +191,6 @@ class OutLineEditorApp:
 
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-
 
     def initialize_password(self):
         """
@@ -426,9 +426,10 @@ class OutLineEditorApp:
         self.tree.grid(row=1, column=0, sticky="nswe", pady=section_pady)
 
         self.tree.bind("<<TreeviewSelect>>", self.load_selected)  # Bind for handling selection
-        # self.tree.bind("<<TreeviewSelect>>", lambda event: (self.load_selected, self.refresh_tree()))  # can't go here
+        #self.tree.bind("<<TreeviewSelect>>", lambda event: (self.load_selected, self.refresh_tree()))  # can't go here
         #self.tree.bind("<<TreeviewSelect>>", lambda event: (self.refresh_tree(), self.load_selected))  # can't go here
         self.tree.bind("<<TreeviewOpen>>", self.on_tree_expand)   # Bind for handling lazy loading on expand
+        self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
 
 
         ttk.Label(self.tree_frame, text="Search <Enter>", bootstyle="info").grid(
@@ -859,15 +860,19 @@ class OutLineEditorApp:
     @timer
     def refresh_tree(self, event=None):
         """
-        Reload the TreeView to reflect database changes while preserving expansion state.
+        Reload the TreeView to reflect database changes while preserving expansion state and selection.
         """
         try:
-            # Get currently expanded items before refresh (using database IDs)
-            expanded_db_ids = self.get_expanded_items()
-            
-            # Store current selection if any
+            # Store currently selected item before refresh
             selected = self.tree.selection()
             selected_db_id = self.get_item_id(selected[0]) if selected else None
+            
+            # Get currently expanded items before refresh
+            expanded_db_ids = self.get_expanded_items()
+            
+            # Temporarily unbind selection event
+            if self._selection_binding:
+                self.tree.unbind("<<TreeviewSelect>>", self._selection_binding)
             
             # Clear the tree
             self.tree.delete(*self.tree.get_children())
@@ -878,16 +883,43 @@ class OutLineEditorApp:
             # Restore expansion state
             self.restore_expansion_state(expanded_db_ids)
             
-            # Restore selection if possible
-            if selected_db_id is not None:
-                self.select_item(selected_db_id)
-                
             # Update numbering
             numbering_dict = self.db.generate_numbering()
             self.calculate_numbering(numbering_dict)
             
+            # Restore selection if possible
+            if selected_db_id is not None:
+                self.select_item(selected_db_id)
+            
+            # Rebind selection event
+            self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+            
         except Exception as e:
             print(f"Error in refresh_tree: {e}")
+            # Ensure event is rebound even if there's an error
+            if not self._selection_binding:
+                self._selection_binding = self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+
+    @timer
+    def update_tree_item(self, item_id, new_title):
+        """Update a single tree item's text and numbering without full refresh."""
+        try:
+            # Get the current numbering
+            numbering_dict = self.db.generate_numbering()
+            
+            # Find and update the item
+            item_iid = str(item_id)
+            if self.tree.exists(item_iid):
+                # Apply numbering format
+                if item_id in numbering_dict:
+                    display_title = f"{numbering_dict[item_id]}. {new_title}"
+                else:
+                    display_title = new_title
+                
+                self.tree.item(item_iid, text=display_title)
+
+        except Exception as e:
+            print(f"Error updating tree item: {e}")
 
     @timer
     def get_expanded_items(self):
@@ -980,13 +1012,16 @@ class OutLineEditorApp:
 
     @timer
     def select_item(self, item_id):
-        """Select and focus an item in the treeview."""
+        """Select and focus an item in the treeview without triggering selection event."""
         try:
             if self.tree.exists(str(item_id)):
+                self._suppress_selection_event = True  # Set flag before selection
                 self.tree.selection_set(str(item_id))
                 self.tree.focus(str(item_id))
-                self.tree.see(str(item_id))  # Ensure the item is visible
+                self.tree.see(str(item_id))
+                self._suppress_selection_event = False  # Reset flag after selection
         except Exception as e:
+            self._suppress_selection_event = False  # Reset flag in case of error
             print(f"Error in select_item: {e}")
 
 
@@ -1129,27 +1164,23 @@ class OutLineEditorApp:
         """Load the selected item and populate the editor with decrypted data."""
         if not self.is_authenticated or not self.encryption_manager:
             return
-                
+                    
+        # Save previous selection's data if exists
         if self.last_selected_item_id is not None:
             self.save_data()
-            # can't go here
-            #self.refresh_tree()
-
 
         selected = self.tree.selection()
         if not selected:
             return
 
         item_id = self.get_item_id(selected[0])
+        if item_id == self.last_selected_item_id:
+            return  # Don't reload if selecting the same item
+            
         self.last_selected_item_id = item_id
-        
-        # can't go here
-        #self.refresh_tree()
 
         try:
-            # Ensure DB handler has current encryption manager
             self.db.encryption_manager = self.encryption_manager
-            
             row = self.db.cursor.execute(
                 "SELECT title, questions FROM sections WHERE id = ?", (item_id,)
             ).fetchone()
@@ -1168,11 +1199,7 @@ class OutLineEditorApp:
                     )
                     parsed_questions = json.loads(decrypted_questions.strip())
                     self.questions_text.insert(tk.END, "\n".join(parsed_questions))
-                    
-            # can't go here
-            #self.refresh_tree()
-
-                    
+            
         except Exception as e:
             print(f"Selection loading error: {e}")
             self.handle_authentication_failure("Decryption failed. Please verify your password.")
@@ -1180,7 +1207,7 @@ class OutLineEditorApp:
 
     @timer
     def save_data(self, event=None):
-        """Save data with authentication check."""
+        """Save data with authentication check and update tree item."""
         if not self.is_authenticated or self.last_selected_item_id is None:
             return
 
@@ -1194,18 +1221,12 @@ class OutLineEditorApp:
             questions = [q for q in questions if q]
             questions_json = json.dumps(questions)
 
+            # Update database
             self.db.update_section(self.last_selected_item_id, title, questions_json)
 
-            if self.tree.exists(str(self.last_selected_item_id)):
-                self.tree.item(self.last_selected_item_id, text=title)
-
-            numbering_dict = self.db.generate_numbering()
-            self.calculate_numbering(numbering_dict)
+            # Update the tree item text directly
+            self.update_tree_item(self.last_selected_item_id, title)
             
-            # can't go here
-            #self.refresh_tree()
-
-           
         except Exception as e:
             print(f"Encryption Error: {e}")
             self.handle_authentication_failure("Encryption failed. Please verify your password.")
