@@ -26,7 +26,7 @@ class EncryptionManager:
             algorithm=SHA256(),
             length=32,
             salt=salt,
-            iterations=100_000,  # Consider reducing for non-critical operations
+            iterations=100_000,
             backend=default_backend(),
         )
         return kdf.derive(self.password)
