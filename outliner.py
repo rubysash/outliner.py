@@ -528,6 +528,13 @@ class OutLineEditorApp:
             bootstyle="success"
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
+        ttk.Button(
+            self.exports_buttons, 
+            text="Export Titles to JSON", 
+            command=self.export_titles_to_json,
+            bootstyle="info"
+        ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
+
 
     # TREE MANIPULATION
 
@@ -1298,10 +1305,13 @@ class OutLineEditorApp:
             return
 
         try:
-            questions = self.questions_text.get(1.0, tk.END).strip().split("\n")
-            questions = [q for q in questions if q]
+            # Get raw text content and split by newlines while preserving empty lines
+            raw_text = self.questions_text.get(1.0, tk.END).rstrip()
+            questions = raw_text.split("\n")
+            # Keep empty lines by only filtering out lines that are actually None
+            questions = [q if q else "" for q in questions]
             questions_json = json.dumps(questions)
-
+            
             self.db.update_section(self.last_selected_item_id, title, questions_json)
 
             if refresh:
@@ -1488,6 +1498,65 @@ class OutLineEditorApp:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
 
+    # JSON
+    
+    def export_titles_to_json(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "No node selected for export.")
+            return
+
+        node_id = self.get_item_id(selected[0])
+        if not node_id:
+            messagebox.showerror("Error", "Invalid selection.")
+            return
+
+        try:
+            data = self.build_hierarchy(node_id)
+            file_path = asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON Files", "*.json")],
+                title="Save JSON Export"
+            )
+            if not file_path:
+                return  # User canceled
+
+            with open(file_path, "w", encoding="utf-8") as json_file:
+                json.dump(data, json_file, indent=4, ensure_ascii=False)
+
+            messagebox.showinfo("Success", f"Exported titles to {file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export: {str(e)}")
+
+
+    def build_hierarchy(self, node_id):
+        def add_children(parent_id, level):
+            children = self.db.load_children(parent_id)
+            result = []
+            for child_id, encrypted_title, _ in children:
+                title = self.db.decrypt_safely(encrypted_title)
+                child_hierarchy = {"name": title}
+                if level == 1:
+                    child_hierarchy["h2"] = add_children(child_id, level + 1)
+                elif level == 2:
+                    child_hierarchy["h3"] = add_children(child_id, level + 1)
+                elif level == 3:
+                    child_hierarchy["h4"] = add_children(child_id, level + 1)
+                else:
+                    child_hierarchy["children"] = add_children(child_id, level + 1)
+                result.append(child_hierarchy)
+            return result
+
+        root_title = self.db.get_section_title(node_id)
+        hierarchy = {
+            "h1": [
+                {
+                    "name": root_title,
+                    "h2": add_children(node_id, 1),
+                }
+            ]
+        }
+        return hierarchy
 
     # DOCX
     

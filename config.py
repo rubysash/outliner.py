@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.33"
+VERSION = "0.34"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -39,6 +39,9 @@ COLOR_THRESHOLDS = {
 
 '''
 Versions
+.34 - DEV - Export JSON/Import seems broken at moment
+.34 - Fixed saving text was stripping blank lines.  Change to rstrip only and preserve blank lines
+
 .33 - STABLE - Only exports selected sections to docx
 
 .32 - STABLE - Properly decrypts for docx export

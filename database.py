@@ -51,6 +51,16 @@ class DatabaseHandler:
                 
         return level
 
+    def get_section_title(self, section_id):
+        """
+        Retrieve and decrypt the title of a section by its ID.
+        """
+        self.cursor.execute("SELECT title FROM sections WHERE id = ?", (section_id,))
+        result = self.cursor.fetchone()
+        if result and result[0]:
+            return self.decrypt_safely(result[0])
+        return ""
+
     @timer
     def setup_database(self):
         """Initialize database schema with core optimizations."""
