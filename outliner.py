@@ -505,7 +505,7 @@ class OutLineEditorApp:
         self.exports_buttons = ttk.Frame(self.exports_tab)
         self.exports_buttons.grid(row=1, column=0, sticky="ew", padx=frame_padx, pady=frame_pady)
 
-        ttk.Button(self.exports_buttons, text="Make DOCX", command=lambda: export_to_docx(self.db.cursor), bootstyle="success").pack(
+        ttk.Button(self.exports_buttons, text="Make DOCX", command=lambda: export_to_docx(self.db), bootstyle="success").pack(
             side=tk.LEFT, padx=button_padx, pady=button_padx
         )
 

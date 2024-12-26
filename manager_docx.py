@@ -5,19 +5,18 @@ from config import DOC_FONT, H1_SIZE, H2_SIZE, H3_SIZE, H4_SIZE, P_SIZE, INDENT_
 from tkinter.filedialog import asksaveasfilename
 from tkinter import messagebox
 
+from database import DatabaseHandler
+from manager_encryption import EncryptionManager
 
-def export_to_docx(cursor):
+def export_to_docx(db_handler: DatabaseHandler):
     """Creates the docx file based on specs defined."""
     try:
         doc = Document()
 
-        # Fetch sections from the database
-        cursor.execute(
-            "SELECT id, title, type, parent_id, questions, placement FROM sections ORDER BY parent_id, placement"
-        )
-        sections = cursor.fetchall()
+        # Fetch and decrypt sections
+        sections = db_handler.load_from_database()  
 
-        # Add Table of Contents Placeholder
+         # Add Table of Contents Placeholder
         toc_paragraph = doc.add_paragraph("Table of Contents", style="Heading 1")
         toc_paragraph.add_run("\n(TOC will need to be updated in Word)").italic = True
         doc.add_page_break()  # Add page break after TOC
