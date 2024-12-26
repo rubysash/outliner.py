@@ -35,6 +35,23 @@ class DatabaseHandler:
         """)
 
     @timer
+    def get_section_level(self, section_id):
+        """Get level by counting parents up to root."""
+        level = 1
+        current_id = section_id
+        
+        while current_id is not None:
+            self.cursor.execute("SELECT parent_id FROM sections WHERE id = ?", (current_id,))
+            result = self.cursor.fetchone()
+            if result:
+                current_id = result[0]
+                level += 1
+            else:
+                break
+                
+        return level
+
+    @timer
     def setup_database(self):
         """Initialize database schema with core optimizations."""
         

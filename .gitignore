@@ -12,6 +12,10 @@ Scripts/
 dbs/
 *.db
 
+# Any created files
+*.json
+*.docx
+
 # Environment variables
 .env
 

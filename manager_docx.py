@@ -8,48 +8,98 @@ from tkinter import messagebox
 from database import DatabaseHandler
 from manager_encryption import EncryptionManager
 
-def export_to_docx(db_handler: DatabaseHandler):
+def load_sections_for_export(db_handler: DatabaseHandler, root_id=None):
+    """Load sections from database with optional root filtering."""
+    db_handler.cursor.execute("""
+        WITH RECURSIVE descendants AS (
+            SELECT id, title, type, parent_id, questions, placement
+            FROM sections
+            WHERE id = ? OR (? IS NULL AND parent_id IS NULL)
+            UNION ALL
+            SELECT s.id, s.title, s.type, s.parent_id, s.questions, s.placement
+            FROM sections s
+            INNER JOIN descendants d ON s.parent_id = d.id
+        )
+        SELECT id, title, type, parent_id, questions 
+        FROM descendants
+        ORDER BY parent_id NULLS FIRST, placement, id
+    """, (root_id, root_id))
+    
+    rows = db_handler.cursor.fetchall()
+    decrypted_rows = []
+    
+    for row in rows:
+        decrypted_title = db_handler.decrypt_safely(row[1], f"[Section {row[0]}]")
+        decrypted_questions = db_handler.decrypt_safely(row[4], "[]")
+        decrypted_rows.append((
+            row[0],           # id
+            decrypted_title,  # title
+            row[2],          # type
+            row[3],          # parent_id
+            decrypted_questions  # questions
+        ))
+    
+    return decrypted_rows
+
+def export_to_docx(db_handler: DatabaseHandler, root_id=None):
     """Creates the docx file based on specs defined."""
     try:
+        # Only show the warning if no section is selected
+        if root_id is None:
+            confirm = messagebox.askyesno(
+                "Full Export Warning",
+                "No section selected. This will export the entire document which may take some time. Continue?",
+                icon='warning'
+            )
+            if not confirm:
+                return
+
+        sections = load_sections_for_export(db_handler, root_id)
+        
+        # Calculate level adjustment based on root depth
+        level_adjustment = 0
+        if root_id:
+            root_level = db_handler.get_section_level(root_id)
+            if root_level > 1:
+                level_adjustment = -(root_level - 1)
+
         doc = Document()
 
-        # Fetch and decrypt sections
-        sections = db_handler.load_from_database()  
-
-         # Add Table of Contents Placeholder
+        # Add Table of Contents Placeholder
         toc_paragraph = doc.add_paragraph("Table of Contents", style="Heading 1")
         toc_paragraph.add_run("\n(TOC will need to be updated in Word)").italic = True
-        doc.add_page_break()  # Add page break after TOC
+        doc.add_page_break()
 
-        def add_custom_heading(doc, text, level):
+        def add_custom_heading(doc, text, original_level, level_adjustment=0):
             """Add a custom heading with specific formatting and indentation."""
-            paragraph = doc.add_heading(level=level)
-            if len(paragraph.runs) == 0:
-                run = paragraph.add_run()
-            else:
-                run = paragraph.runs[0]
+            adjusted_level = max(1, original_level + level_adjustment)
+            paragraph = doc.add_heading(level=min(adjusted_level, 9))
+            run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
             run.text = text
             run.font.name = DOC_FONT
             run.bold = True
 
             # Apply colors and underline based on level
-            if level == 1:
+            if adjusted_level == 1:
                 run.font.size = Pt(H1_SIZE)
                 run.font.color.rgb = RGBColor(178, 34, 34)  # Brick red
-            elif level == 2:
+            elif adjusted_level == 2:
                 run.font.size = Pt(H2_SIZE)
                 run.font.color.rgb = RGBColor(0, 0, 128)  # Navy blue
-            elif level == 3:
+            elif adjusted_level == 3:
                 run.font.size = Pt(H3_SIZE)
                 run.font.color.rgb = RGBColor(0, 0, 0)  # Black
-            elif level == 4:
+            elif adjusted_level == 4:
                 run.font.size = Pt(H4_SIZE)
                 run.font.color.rgb = RGBColor(0, 0, 0)  # Black underline
                 run.underline = True
+            elif adjusted_level > 4:
+                run.font.size = Pt(H4_SIZE)
+                run.font.color.rgb = RGBColor(0, 0, 0)  # Black underline
 
-            # Adjust paragraph indentation
-            paragraph.paragraph_format.left_indent = Inches(INDENT_SIZE * (level - 1))
-            return paragraph.paragraph_format.left_indent.inches
+            indent = INDENT_SIZE * (adjusted_level - 1)
+            paragraph.paragraph_format.left_indent = Inches(indent)
+            return indent
 
         def add_custom_paragraph(doc, text, style="Normal", indent=0):
             """Add a custom paragraph with specific formatting."""
@@ -69,26 +119,21 @@ def export_to_docx(db_handler: DatabaseHandler):
             children = [s for s in sections if s[3] == parent_id]
 
             for idx, section in enumerate(children, start=1):
-                # Generate numbering dynamically
                 number = f"{numbering_prefix}{idx}"
                 title_with_number = f"{number}. {section[1]}"
 
-                # Add page break before H1 (except the first one)
-                if level == 1 and not is_first_h1:
+                if level + level_adjustment == 1 and not is_first_h1:
                     doc.add_page_break()
-                if level == 1:
-                    is_first_h1 = False  # Update the flag after processing the first H1
+                if level + level_adjustment == 1:
+                    is_first_h1 = False
 
-                # Add heading with numbering
-                parent_indent = add_custom_heading(doc, title_with_number, level)
+                parent_indent = add_custom_heading(doc, title_with_number, level, level_adjustment)
 
-                # Validate and load questions
                 try:
                     questions = json.loads(section[4]) if section[4] else []
                 except json.JSONDecodeError:
                     questions = []
 
-                # Add content: bullet points for H3/H4, plain paragraphs otherwise
                 if not questions:
                     add_custom_paragraph(
                         doc,
@@ -105,7 +150,6 @@ def export_to_docx(db_handler: DatabaseHandler):
                             indent=parent_indent + INDENT_SIZE,
                         )
 
-                # Recurse for children
                 add_to_doc(
                     section[0],
                     level + 1,
@@ -113,19 +157,16 @@ def export_to_docx(db_handler: DatabaseHandler):
                     is_first_h1=is_first_h1,
                 )
 
-        # Start adding sections from the root
-        add_to_doc(None, 1)
+        add_to_doc(root_id, 1)
 
-        # Ask the user for a save location
         file_path = asksaveasfilename(
             defaultextension=".docx",
             filetypes=[("Word Documents", "*.docx")],
             title="Save Document As",
         )
         if not file_path:
-            return  # User cancelled the save dialog
+            return
 
-        # Save the document
         doc.save(file_path)
         messagebox.showinfo(
             "Exported", f"Document exported successfully to {file_path}."
@@ -133,3 +174,4 @@ def export_to_docx(db_handler: DatabaseHandler):
 
     except Exception as e:
         messagebox.showerror("Export Failed", f"An error occurred during export:\n{e}")
+

@@ -193,11 +193,27 @@ class OutLineEditorApp:
         self.load_from_database()
 
         # Bind notebook tab change to save data and refresh the tree
-        self.notebook.bind("<<NotebookTabChanged>>", lambda event: (self.save_data(), self.refresh_tree()))
+        #self.notebook.bind("<<NotebookTabChanged>>", lambda event: (self.save_data(), self.refresh_tree()))
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
 
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def on_tab_change(self, event):
+        """Handle notebook tab changes while preserving tree selection."""
+        selected = self.tree.selection()
+        selected_id = self.get_item_id(selected[0]) if selected else None
+        
+        # Save data
+        self.save_data(refresh=False)
+        
+        # Refresh tree
+        self.refresh_tree()
+        
+        # Restore selection if there was one
+        if selected_id:
+            self.select_item(f"I{selected_id}")
 
     @timer
     def initialize_password(self):
@@ -505,9 +521,12 @@ class OutLineEditorApp:
         self.exports_buttons = ttk.Frame(self.exports_tab)
         self.exports_buttons.grid(row=1, column=0, sticky="ew", padx=frame_padx, pady=frame_pady)
 
-        ttk.Button(self.exports_buttons, text="Make DOCX", command=lambda: export_to_docx(self.db), bootstyle="success").pack(
-            side=tk.LEFT, padx=button_padx, pady=button_padx
-        )
+        ttk.Button(
+            self.exports_buttons, 
+            text="Make DOCX", 
+            command=self.handle_export_docx,
+            bootstyle="success"
+        ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
 
     # TREE MANIPULATION
@@ -1469,6 +1488,29 @@ class OutLineEditorApp:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
 
+
+    # DOCX
+    
+    def handle_export_docx(self):
+        selected = self.tree.selection()
+        root_id = None
+        
+        if selected:
+            root_id = self.get_item_id(selected[0])
+            level = self.db.get_section_level(root_id)
+            decrypted_title = self.tree.item(selected[0])['text']
+            if '. ' in decrypted_title:
+                decrypted_title = decrypted_title.split('. ', 1)[1]
+            
+            confirm = messagebox.askyesno(
+                "Export Selection",
+                f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
+                icon='info'
+            )
+            if not confirm:
+                return
+                
+        export_to_docx(self.db, root_id)
 
     # SEARCH
 

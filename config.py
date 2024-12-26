@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.32"
+VERSION = "0.33"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -39,6 +39,8 @@ COLOR_THRESHOLDS = {
 
 '''
 Versions
+.33 - STABLE - Only exports selected sections to docx
+
 .32 - STABLE - Properly decrypts for docx export
 
 .31 - STABLE - Load DB holding encryption from other db
