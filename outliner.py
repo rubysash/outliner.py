@@ -266,7 +266,6 @@ class OutLineEditorApp:
                 messagebox.showinfo("Success", "Password has been set.")
                 break
 
-
     def handle_authentication_failure(self, message="Authentication failed"):
         """Handle failed authentication attempts."""
         self.is_authenticated = False
@@ -377,6 +376,7 @@ class OutLineEditorApp:
             print(f"Database loading error: {e}")
             messagebox.showerror("Error", f"350. Failed to load database: {e}")
             self.handle_authentication_failure("Failed to authenticate with the loaded database.")
+
     
     # TABS
 
@@ -510,12 +510,14 @@ class OutLineEditorApp:
         self.exports_frame.grid_rowconfigure(0, weight=1)
         self.exports_frame.grid_columnconfigure(0, weight=1)
 
-        ttk.Label(self.exports_frame, text="Export Options", font=GLOBAL_FONT).grid(
-            row=0, column=0, sticky="w", padx=label_padx, pady=label_pady
-        )
-        ttk.Label(self.exports_frame, text="Use the button below to export your outline.", font=GLOBAL_FONT).grid(
-            row=1, column=0, sticky="w", padx=label_padx, pady=label_pady
-        )
+        # Export scope checkbox
+        self.export_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.exports_frame,
+            text="Export All Sections",
+            variable=self.export_all,
+            bootstyle="info-round-toggle"
+        ).grid(row=0, column=0, sticky="w", padx=label_padx, pady=label_pady)
 
         # Buttons Frame (Bottom)
         self.exports_buttons = ttk.Frame(self.exports_tab)
@@ -1501,15 +1503,35 @@ class OutLineEditorApp:
     # JSON
     
     def export_titles_to_json(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showerror("Error", "No node selected for export.")
-            return
+        export_all = self.export_all.get()
+        node_id = None
 
-        node_id = self.get_item_id(selected[0])
-        if not node_id:
-            messagebox.showerror("Error", "Invalid selection.")
-            return
+        if not export_all:
+            selected = self.tree.selection()
+            if selected:
+                node_id = self.get_item_id(selected[0])
+                decrypted_title = self.tree.item(selected[0])['text']
+                if '. ' in decrypted_title:
+                    decrypted_title = decrypted_title.split('. ', 1)[1]
+                
+                confirm = messagebox.askyesno(
+                    "Export Selection",
+                    f"Export '{decrypted_title}' and its subsections to JSON?",
+                    icon='info'
+                )
+                if not confirm:
+                    return
+            else:
+                export_all = True
+
+        if export_all:
+            confirm = messagebox.askyesno(
+                "Full Export Warning",
+                "This will export all titles which may take time for decryption. Continue?",
+                icon='warning'
+            )
+            if not confirm:
+                return
 
         try:
             data = self.build_hierarchy(node_id)
@@ -1519,7 +1541,7 @@ class OutLineEditorApp:
                 title="Save JSON Export"
             )
             if not file_path:
-                return  # User canceled
+                return
 
             with open(file_path, "w", encoding="utf-8") as json_file:
                 json.dump(data, json_file, indent=4, ensure_ascii=False)
@@ -1527,7 +1549,6 @@ class OutLineEditorApp:
             messagebox.showinfo("Success", f"Exported titles to {file_path}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export: {str(e)}")
-
 
     def build_hierarchy(self, node_id):
         def get_level_key(level):
@@ -1565,20 +1586,33 @@ class OutLineEditorApp:
     # DOCX
     
     def handle_export_docx(self):
-        selected = self.tree.selection()
+        export_all = self.export_all.get()
         root_id = None
         
-        if selected:
-            root_id = self.get_item_id(selected[0])
-            level = self.db.get_section_level(root_id)
-            decrypted_title = self.tree.item(selected[0])['text']
-            if '. ' in decrypted_title:
-                decrypted_title = decrypted_title.split('. ', 1)[1]
-            
+        if not export_all:
+            selected = self.tree.selection()
+            if selected:
+                root_id = self.get_item_id(selected[0])
+                level = self.db.get_section_level(root_id)
+                decrypted_title = self.tree.item(selected[0])['text']
+                if '. ' in decrypted_title:
+                    decrypted_title = decrypted_title.split('. ', 1)[1]
+                
+                confirm = messagebox.askyesno(
+                    "Export Selection",
+                    f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
+                    icon='info'
+                )
+                if not confirm:
+                    return
+            else:
+                export_all = True  # Default to all if nothing selected
+        
+        if export_all:
             confirm = messagebox.askyesno(
-                "Export Selection",
-                f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
-                icon='info'
+                "Full Export Warning",
+                "This will export the entire document which may take some time for decryption. Continue?",
+                icon='warning'
             )
             if not confirm:
                 return

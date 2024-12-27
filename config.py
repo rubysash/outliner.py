@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.35"
+VERSION = "0.36"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -40,6 +40,7 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.36 - STABLE controls for export all/some because no "unselect" exists
 .35 - STABLE node exports for json and docx working.
 Error in json imports fixed, padding was required
 .34 - DEV - Export JSON/Import seems broken at moment
