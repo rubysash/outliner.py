@@ -13,6 +13,7 @@ from utility import timer
 from manager_docx import export_to_docx
 from manager_json import load_from_json_file
 from manager_encryption import EncryptionManager
+from manager_pdf import export_to_pdf
 
 from database import DatabaseHandler
 from config import (
@@ -469,10 +470,18 @@ class OutLineEditorApp:
 
         ttk.Button(
             self.exports_buttons, 
-            text="Export Titles to JSON", 
+            text="Make PDF", 
+            command=self.handle_export_pdf,
+            bootstyle="success"
+        ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
+
+        ttk.Button(
+            self.exports_buttons, 
+            text="Titles to JSON", 
             command=self.export_titles_to_json,
             bootstyle="info"
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
+
 
 
     # TREE MANIPULATION
@@ -1643,6 +1652,43 @@ class OutLineEditorApp:
                 
         export_to_docx(self.db, root_id)
 
+
+    # PDF
+    
+    def handle_export_pdf(self):
+        export_all = self.export_all.get()
+        root_id = None
+        
+        if not export_all:
+            selected = self.tree.selection()
+            if selected:
+                root_id = self.get_item_id(selected[0])
+                level = self.db.get_section_level(root_id)
+                decrypted_title = self.tree.item(selected[0])['text']
+                if '. ' in decrypted_title:
+                    decrypted_title = decrypted_title.split('. ', 1)[1]
+                
+                confirm = messagebox.askyesno(
+                    "Export Selection",
+                    f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
+                    icon='info'
+                )
+                if not confirm:
+                    return
+            else:
+                export_all = True  # Default to all if nothing selected
+        
+        if export_all:
+            confirm = messagebox.askyesno(
+                "Full Export Warning",
+                "This will export the entire document which may take some time for decryption. Continue?",
+                icon='warning'
+            )
+            if not confirm:
+                return
+                
+        export_to_pdf(self.db, root_id)
+    
     # SEARCH
 
     @timer
