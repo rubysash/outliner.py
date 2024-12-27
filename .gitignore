@@ -15,6 +15,7 @@ dbs/
 # Any created files
 *.json
 *.docx
+*.pdf
 
 # Environment variables
 .env
