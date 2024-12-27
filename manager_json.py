@@ -2,20 +2,63 @@ import json
 from tkinter.filedialog import askopenfilename
 from tkinter import messagebox
 
+def validate_json_schema(data, max_depth=10):
+    """Validates JSON structure for outline schema"""
+    if not isinstance(data, dict):
+        raise ValueError("Root must be an object")
+    
+    if "h1" not in data:
+        raise ValueError("Root must have 'h1' key")
+        
+    if not isinstance(data["h1"], list):
+        raise ValueError("h1 must be a list")
+
+    def validate_node(node, level=1, path="root"):
+        if not isinstance(node, dict):
+            raise ValueError(f"Invalid node at {path}: must be an object")
+            
+        if "name" not in node:
+            raise ValueError(f"Missing 'name' at {path}")
+            
+        if not isinstance(node["name"], str):
+            raise ValueError(f"'name' must be string at {path}")
+            
+        if level >= max_depth:
+            return
+            
+        # Check next level
+        next_level = f"h{level+1}"
+        if next_level in node:
+            if not isinstance(node[next_level], list):
+                raise ValueError(f"'{next_level}' must be a list at {path}")
+            for idx, child in enumerate(node[next_level]):
+                child_path = f"{path}.{next_level}[{idx}]"
+                validate_node(child, level + 1, child_path)
+                
+        # Check children key
+        if "children" in node:
+            if not isinstance(node["children"], list):
+                raise ValueError(f"'children' must be a list at {path}")
+            for idx, child in enumerate(node["children"]):
+                child_path = f"{path}.children[{idx}]"
+                validate_node(child, level + 1, child_path)
+
+    # Validate each h1 entry
+    for idx, node in enumerate(data["h1"]):
+        path = f"h1[{idx}]"
+        validate_node(node, 1, path)
+    
+    return True
+
 def load_from_json_file(cursor, db_handler, refresh_tree_callback=None):
-    """
-    Load JSON from a file and populate the database with hierarchical data.
-    Args:
-        cursor: SQLite database cursor for executing queries.
-        db_handler: Instance of DatabaseHandler to interact with the database.
-        refresh_tree_callback: Optional callback to refresh the tree view.
-    """
     file_path = askopenfilename(
         filetypes=[("JSON Files", "*.json")], title="Select JSON File"
     )
     if not file_path:
-        return  # User cancelled
+        return
 
+    sections_added = 0
+    
     try:
         confirm = messagebox.askyesno(
             "Preload Warning",
@@ -24,66 +67,90 @@ def load_from_json_file(cursor, db_handler, refresh_tree_callback=None):
         if not confirm:
             return
 
-        with open(file_path, "r") as file:
+        with open(file_path, "r", encoding='utf-8') as file:
             data = json.load(file)
 
-        validate_json_structure(data)
+        # Validate schema
+        validate_json_schema(data)
 
-        def insert_section(title, section_type, placement, parent_id=None):
-            return db_handler.add_section(title, section_type, parent_id, placement)
+        # Start transaction
+        cursor.execute("BEGIN")
+        
+        def get_section_type(level):
+            if level == 1:
+                return "header"
+            elif level == 2:
+                return "category"
+            elif level == 3:
+                return "subcategory"
+            else:
+                return "subheader"
 
-        for h1_idx, h1_item in enumerate(data.get("h1", []), start=1):
-            h1_id = insert_section(h1_item["name"], "header", h1_idx)
-            for h2_idx, h2_item in enumerate(h1_item.get("h2", []), start=1):
-                h2_id = insert_section(h2_item["name"], "category", h2_idx, h1_id)
-                for h3_idx, h3_item in enumerate(h2_item.get("h3", []), start=1):
-                    h3_id = insert_section(h3_item["name"], "subcategory", h3_idx, h2_id)
-                    for h4_idx, h4_item in enumerate(h3_item.get("h4", []), start=1):
-                        insert_section(h4_item["name"], "subheader", h4_idx, h3_id)
+        def process_node(node, parent_id=None, level=1, placement=1):
+            try:
+                title = node.get("name", "")
+                if not title:
+                    return
+                    
+                section_type = get_section_type(level)
+                nonlocal sections_added
+                try:
+                    section_id = db_handler.add_section(title, section_type, parent_id, placement)
+                    sections_added += 1
+                except Exception as e:
+                    print(f"Error adding section '{title}': {e}")
+                    raise ValueError(f"Failed to add section '{title}': {e}")
 
-        messagebox.showinfo("Success", f"JSON data successfully loaded from {file_path}.")
+                # Process next level
+                next_level_key = f"h{level+1}"
+                children_key = "children"
+                children = node.get(next_level_key, node.get(children_key, []))
+                
+                for idx, child in enumerate(children, start=1):
+                    if isinstance(child, dict):
+                        process_node(child, section_id, level+1, idx)
+                        
+            except Exception as e:
+                print(f"Error processing node: {e}")
+                raise
 
-        # Call the callback to refresh the tree if provided
+        # Process root level
+        for idx, h1_item in enumerate(data.get("h1", []), start=1):
+            process_node(h1_item, None, 1, idx)
+
+        db_handler.conn.commit()
+        messagebox.showinfo("Success", f"Successfully imported {sections_added} sections from {file_path}")
+        
         if refresh_tree_callback:
             refresh_tree_callback()
 
-    except FileNotFoundError:
-        messagebox.showerror("Error", f"File not found: {file_path}")
     except json.JSONDecodeError:
-        messagebox.showerror("Error", "Invalid JSON format. Please select a valid JSON file.")
+        messagebox.showerror("Error", "Invalid JSON format")
     except ValueError as ve:
-        messagebox.showerror("Error", f"Invalid JSON structure: {ve}")
+        messagebox.showerror("Error", f"Schema validation error: {str(ve)}")
     except Exception as e:
-        messagebox.showerror("Error", f"An unexpected error occurred: {e}")
+        if db_handler and db_handler.conn:
+            db_handler.conn.rollback()
+        messagebox.showerror("Error", f"Failed to import JSON: {str(e)}.\nSuccessfully imported {sections_added} sections before error.")
+        print(f"Detailed error: {e}")
 
-
-def validate_json_structure(data):
-    """
-    Validate the hierarchical structure of the JSON data.
-    Args:
-        data: The JSON object to validate.
-    Raises:
-        ValueError: If the JSON structure is invalid.
-    """
-    if not isinstance(data, dict) or "h1" not in data:
-        raise ValueError("Root JSON must be a dictionary with an 'h1' key.")
-
-    for h1_item in data.get("h1", []):
-        if not isinstance(h1_item, dict) or "name" not in h1_item:
-            raise ValueError("Each 'h1' item must be a dictionary with a 'name'.")
-
-        if "h2" in h1_item:
-            if not isinstance(h1_item["h2"], list):
-                raise ValueError("'h2' must be a list in 'h1' item.")
-
-            for h2_item in h1_item["h2"]:
-                if not isinstance(h2_item, dict) or "name" not in h2_item:
-                    raise ValueError("Each 'h2' item must be a dictionary with a 'name'.")
-
-                if "h3" in h2_item:
-                    if not isinstance(h2_item["h3"], list):
-                        raise ValueError("'h3' must be a list in 'h2' item.")
-
-                    for h3_item in h2_item["h3"]:
-                        if not isinstance(h3_item, dict) or "name" not in h3_item:
-                            raise ValueError("Each 'h3' item must be a dictionary with a 'name'.")
+if __name__ == "__main__":
+    # Test validation
+    test_json = {
+        "h1": [
+            {
+                "name": "Test",
+                "h2": [
+                    {
+                        "name": "Subtest",
+                        "h3": []
+                    }
+                ]
+            }
+        ]
+    }
+    try:
+        validate_json_schema(test_json)
+        print("Validation successful")
+    except ValueError as e:
+        print(f"Validation failed: {e}")

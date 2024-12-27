@@ -13,15 +13,13 @@ class EncryptionManager:
         if len(password) < 3:
             raise ValueError("Password must be at least 14 characters.")
         self.password = password.encode('utf-8')
-        # Pre-compute a common salt and key for non-critical operations
+        # Pre-compute common salt and key
         self._common_salt = os.urandom(16)
         self._common_key = self._derive_key(self._common_salt)
-        # Cache for derived keys
         self._key_cache = {}
 
     @lru_cache(maxsize=1000)
     def _derive_key(self, salt: bytes) -> bytes:
-        """Derive a 256-bit key from the password and salt using PBKDF2."""
         kdf = PBKDF2HMAC(
             algorithm=SHA256(),
             length=32,
@@ -33,9 +31,10 @@ class EncryptionManager:
 
     @timer
     def encrypt_string(self, plain_text: str, critical: bool = False) -> str:
-        if not plain_text:
-            plain_text = " "
-        
+        # Handle empty or whitespace strings
+        if not plain_text or plain_text.isspace():
+            plain_text = " "  # Use single space as minimum content
+
         # Use pre-computed key for non-critical operations
         if not critical:
             salt = self._common_salt
@@ -48,31 +47,39 @@ class EncryptionManager:
         cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
         encryptor = cipher.encryptor()
 
-        padding_length = 16 - (len(plain_text) % 16)
-        padded_text = plain_text + chr(padding_length) * padding_length
+        # Convert string to bytes and pad to block size
+        data = plain_text.encode('utf-8')
+        padding_length = 16 - (len(data) % 16)
+        padded_data = data + bytes([padding_length] * padding_length)
 
-        encrypted_data = encryptor.update(padded_text.encode('utf-8')) + encryptor.finalize()
+        encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
         combined_data = salt + iv + encrypted_data
         return base64.b64encode(combined_data).decode('utf-8')
 
     @timer
     def decrypt_string(self, encrypted_text: str) -> str:
-        if not encrypted_text:
-            return ""  # Handle empty input
-        combined_data = base64.b64decode(encrypted_text)
-        salt = combined_data[:16]
-        iv = combined_data[16:32]
-        ciphertext = combined_data[32:]
+        if not encrypted_text or encrypted_text.isspace():
+            return ""
 
-        key = self._derive_key(salt)
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        decryptor = cipher.decryptor()
+        try:
+            combined_data = base64.b64decode(encrypted_text)
+            salt = combined_data[:16]
+            iv = combined_data[16:32]
+            ciphertext = combined_data[32:]
 
-        decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+            key = self._derive_key(salt)
+            cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+            decryptor = cipher.decryptor()
 
-        # Remove PKCS7 padding
-        padding_length = decrypted_data[-1]
-        result = decrypted_data[:-padding_length].decode('utf-8')
-        #print(f"Decrypting: Salt={salt.hex()}, IV={iv.hex()}, Result={result}")
-        return result
-
+            decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+            padding_length = decrypted_data[-1]
+            
+            # Validate padding
+            if padding_length > 16:
+                raise ValueError("Invalid padding")
+                
+            return decrypted_data[:-padding_length].decode('utf-8')
+            
+        except Exception as e:
+            print(f"Decryption error: {str(e)}")
+            return ""  # Return empty string on error

@@ -44,7 +44,6 @@ def load_sections_for_export(db_handler: DatabaseHandler, root_id=None):
 def export_to_docx(db_handler: DatabaseHandler, root_id=None):
     """Creates the docx file based on specs defined."""
     try:
-        # Only show the warning if no section is selected
         if root_id is None:
             confirm = messagebox.askyesno(
                 "Full Export Warning",
@@ -55,14 +54,6 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
                 return
 
         sections = load_sections_for_export(db_handler, root_id)
-        
-        # Calculate level adjustment based on root depth
-        level_adjustment = 0
-        if root_id:
-            root_level = db_handler.get_section_level(root_id)
-            if root_level > 1:
-                level_adjustment = -(root_level - 1)
-
         doc = Document()
 
         # Add Table of Contents Placeholder
@@ -70,71 +61,78 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
         toc_paragraph.add_run("\n(TOC will need to be updated in Word)").italic = True
         doc.add_page_break()
 
-        def add_custom_heading(doc, text, original_level, level_adjustment=0):
+        def add_custom_heading(doc, text, level):
             """Add a custom heading with specific formatting and indentation."""
-            adjusted_level = max(1, original_level + level_adjustment)
-            paragraph = doc.add_heading(level=min(adjusted_level, 9))
+            paragraph = doc.add_heading(level=min(level, 9))
             run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
             run.text = text
             run.font.name = DOC_FONT
             run.bold = True
 
-            # Apply colors and underline based on level
-            if adjusted_level == 1:
+            if level == 1:
                 run.font.size = Pt(H1_SIZE)
-                run.font.color.rgb = RGBColor(178, 34, 34)  # Brick red
-            elif adjusted_level == 2:
+                run.font.color.rgb = RGBColor(178, 34, 34)
+            elif level == 2:
                 run.font.size = Pt(H2_SIZE)
-                run.font.color.rgb = RGBColor(0, 0, 128)  # Navy blue
-            elif adjusted_level == 3:
+                run.font.color.rgb = RGBColor(0, 0, 128)
+            elif level == 3:
                 run.font.size = Pt(H3_SIZE)
-                run.font.color.rgb = RGBColor(0, 0, 0)  # Black
-            elif adjusted_level == 4:
+                run.font.color.rgb = RGBColor(0, 0, 0)
+            elif level == 4:
                 run.font.size = Pt(H4_SIZE)
-                run.font.color.rgb = RGBColor(0, 0, 0)  # Black underline
+                run.font.color.rgb = RGBColor(0, 0, 0)
                 run.underline = True
-            elif adjusted_level > 4:
+            else:
                 run.font.size = Pt(H4_SIZE)
-                run.font.color.rgb = RGBColor(0, 0, 0)  # Black underline
+                run.font.color.rgb = RGBColor(0, 0, 0)
 
-            indent = INDENT_SIZE * (adjusted_level - 1)
+            indent = INDENT_SIZE * (level - 1)
             paragraph.paragraph_format.left_indent = Inches(indent)
             return indent
 
         def add_custom_paragraph(doc, text, style="Normal", indent=0):
-            """Add a custom paragraph with specific formatting."""
             paragraph = doc.add_paragraph(text, style=style)
             paragraph.paragraph_format.left_indent = Inches(indent)
             paragraph.paragraph_format.space_after = Pt(P_SIZE)
-            if len(paragraph.runs) == 0:
-                run = paragraph.add_run()
-            else:
-                run = paragraph.runs[0]
+            run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
             run.font.name = DOC_FONT
             run.font.size = Pt(P_SIZE)
             return paragraph
 
-        def add_to_doc(parent_id, level, numbering_prefix="", is_first_h1=True):
-            """Recursively add sections and their children to the document with hierarchical numbering."""
+        def get_section_level(section_type):
+            if section_type == "header":
+                return 1
+            elif section_type == "category":
+                return 2
+            elif section_type == "subcategory":
+                return 3
+            else:  # subheader or anything else
+                return 4
+
+        def add_to_doc(parent_id, numbering_prefix="", is_first_h1=True):
             children = [s for s in sections if s[3] == parent_id]
 
             for idx, section in enumerate(children, start=1):
+                section_id, title, section_type, _, questions = section
                 number = f"{numbering_prefix}{idx}"
-                title_with_number = f"{number}. {section[1]}"
+                title_with_number = f"{number}. {title}"
 
-                if level + level_adjustment == 1 and not is_first_h1:
+                # Determine level based on section type
+                current_level = get_section_level(section_type)
+                
+                if current_level == 1 and not is_first_h1:
                     doc.add_page_break()
-                if level + level_adjustment == 1:
+                if current_level == 1:
                     is_first_h1 = False
 
-                parent_indent = add_custom_heading(doc, title_with_number, level, level_adjustment)
+                parent_indent = add_custom_heading(doc, title_with_number, current_level)
 
                 try:
-                    questions = json.loads(section[4]) if section[4] else []
+                    questions_list = json.loads(questions) if questions else []
                 except json.JSONDecodeError:
-                    questions = []
+                    questions_list = []
 
-                if not questions:
+                if not questions_list:
                     add_custom_paragraph(
                         doc,
                         "(No questions added yet)",
@@ -142,7 +140,7 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
                         indent=parent_indent + INDENT_SIZE,
                     )
                 else:
-                    for question in questions:
+                    for question in questions_list:
                         add_custom_paragraph(
                             doc,
                             question,
@@ -151,13 +149,43 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
                         )
 
                 add_to_doc(
-                    section[0],
-                    level + 1,
+                    section_id,
                     numbering_prefix=f"{number}.",
                     is_first_h1=is_first_h1,
                 )
 
-        add_to_doc(root_id, 1)
+        # If root_id is specified, first export the root node itself
+        if root_id:
+            root_section = [s for s in sections if s[0] == root_id][0]
+            section_id, title, section_type, _, questions = root_section
+            
+            # Add the root section heading
+            parent_indent = add_custom_heading(doc, f"1. {title}", get_section_level(section_type))
+            
+            # Add root section's questions
+            try:
+                questions_list = json.loads(questions) if questions else []
+            except json.JSONDecodeError:
+                questions_list = []
+
+            if not questions_list:
+                add_custom_paragraph(
+                    doc,
+                    "(No questions added yet)",
+                    style="Normal",
+                    indent=parent_indent + INDENT_SIZE,
+                )
+            else:
+                for question in questions_list:
+                    add_custom_paragraph(
+                        doc,
+                        question,
+                        style="Normal",
+                        indent=parent_indent + INDENT_SIZE,
+                    )
+        
+        # Then process all children
+        add_to_doc(root_id)
 
         file_path = asksaveasfilename(
             defaultextension=".docx",
@@ -174,4 +202,3 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
 
     except Exception as e:
         messagebox.showerror("Export Failed", f"An error occurred during export:\n{e}")
-

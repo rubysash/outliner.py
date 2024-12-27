@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.34"
+VERSION = "0.35"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -37,25 +37,21 @@ COLOR_THRESHOLDS = {
     "green": 10        # Below 10 ms -> GREEN
 }
 
+
+# Version Info
 '''
-Versions
+.35 - STABLE node exports for json and docx working.
+Error in json imports fixed, padding was required
 .34 - DEV - Export JSON/Import seems broken at moment
-.34 - Fixed saving text was stripping blank lines.  Change to rstrip only and preserve blank lines
-
+.34 - Fixed saving text was stripping blank lines.  
+Change to rstrip only and preserve blank lines
 .33 - STABLE - Only exports selected sections to docx
-
 .32 - STABLE - Properly decrypts for docx export
-
 .31 - STABLE - Load DB holding encryption from other db
-
 .30 - STABLE. Adjusted initialize password to exit if cancelled
-
 .29 - STABLE. Adjusted verbosity of timer
-
 .28 - STABLE. New DB cache and optimizations
-
 .27 - STABLE. Fonts for Notes section
-
 .26 - STABLE. fixed search
 Removed the old search controls and replaced them with a new search frame
 Added proper grid layout for the search components
@@ -64,8 +60,5 @@ Proper binding for the Enter key to execute search
 Search decrypts specific keys only, or global with warning
 Keys are cached for 300s before decrypting again
 Treeview shows plaintext vs encrypted (bug fix)
-
-
-
 .25 - DEV. movement works, lazy loading, cached keys, search not working
 '''

@@ -1530,20 +1530,24 @@ class OutLineEditorApp:
 
 
     def build_hierarchy(self, node_id):
+        def get_level_key(level):
+            return "children" if level > 4 else f"h{level}"
+
         def add_children(parent_id, level):
             children = self.db.load_children(parent_id)
             result = []
             for child_id, encrypted_title, _ in children:
                 title = self.db.decrypt_safely(encrypted_title)
                 child_hierarchy = {"name": title}
-                if level == 1:
-                    child_hierarchy["h2"] = add_children(child_id, level + 1)
-                elif level == 2:
-                    child_hierarchy["h3"] = add_children(child_id, level + 1)
-                elif level == 3:
-                    child_hierarchy["h4"] = add_children(child_id, level + 1)
+                
+                has_children = self.db.has_children(child_id)
+                next_level_key = get_level_key(level + 1)
+                
+                if has_children:
+                    child_hierarchy[next_level_key] = add_children(child_id, level + 1)
                 else:
-                    child_hierarchy["children"] = add_children(child_id, level + 1)
+                    child_hierarchy[next_level_key] = []
+                    
                 result.append(child_hierarchy)
             return result
 
@@ -1552,7 +1556,7 @@ class OutLineEditorApp:
             "h1": [
                 {
                     "name": root_title,
-                    "h2": add_children(node_id, 1),
+                    "h2": add_children(node_id, 2)
                 }
             ]
         }
