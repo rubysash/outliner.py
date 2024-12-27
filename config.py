@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.37"
+VERSION = "0.38"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -33,13 +33,14 @@ MAX_TIME_IN_MS_THRESHOLD = 2000.0     # Don't show operations taking longer than
 COLOR_THRESHOLDS = {
     "red": 100,       # Above 100 ms -> RED
     "orange": 50,     # 50-100 ms -> ORANGE
-    "yellow": 20,     # 20-50 ms -> YELLOW
+    "yellow": 20,     # 20-50 ms -> YELLOWgit 
     "green": 10        # Below 10 ms -> GREEN
 }
 
 
 # Version Info
 '''
+.38 - STABLE - Deleting of entire trees, with warning added
 .37 - STABLE added pdf export like docx/json
 .36 - STABLE controls for export all/some because no "unselect" exists
 added dynamic title version, db file name, # records

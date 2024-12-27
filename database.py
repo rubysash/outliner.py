@@ -357,8 +357,33 @@ class DatabaseHandler:
             self.conn.rollback()
             raise RuntimeError(f"Failed to change password: {e}")
 
+    @timer
+    def count_descendants(self, section_id):
+        """Count all descendants of a section."""
+        self.cursor.execute("""
+            WITH RECURSIVE descendants AS (
+                SELECT id FROM sections WHERE parent_id = ?
+                UNION ALL
+                SELECT s.id 
+                FROM sections s
+                INNER JOIN descendants d ON s.parent_id = d.id
+            )
+            SELECT COUNT(*) FROM descendants
+        """, (section_id,))
+        return self.cursor.fetchone()[0]
+
     def delete_section(self, section_id):
-        self.cursor.execute("DELETE FROM sections WHERE id = ?", (section_id,))
+        """Delete a section and all its descendants."""
+        self.cursor.execute("""
+            WITH RECURSIVE descendants AS (
+                SELECT id FROM sections WHERE id = ?
+                UNION ALL
+                SELECT s.id 
+                FROM sections s
+                INNER JOIN descendants d ON s.parent_id = d.id
+            )
+            DELETE FROM sections WHERE id IN descendants
+        """, (section_id,))
         self.conn.commit()
 
     def reset_database(self, new_db_name):

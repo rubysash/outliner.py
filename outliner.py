@@ -1358,7 +1358,7 @@ class OutLineEditorApp:
 
     @timer
     def delete_selected(self):
-        """Deletes the selected item and all its children, ensuring parent restrictions."""
+        """Deletes the selected item and all its children."""
         selected = self.tree.selection()
         if not selected:
             messagebox.showerror("Error", "Please select an item to delete.")
@@ -1367,20 +1367,21 @@ class OutLineEditorApp:
         item_id = self.get_item_id(selected[0])
         item_type = self.get_item_type(selected[0])
 
-        # Check if the item has children using `DatabaseHandler`
-        if self.db.has_children(item_id):
-            messagebox.showerror(
-                "Error", f"Cannot delete {item_type} with child items."
-            )
-            return
+        # Get number of children that will be deleted
+        child_count = self.db.count_descendants(item_id)
+        warning = f"Delete this {item_type}"
+        if child_count > 0:
+            warning += f" and its {child_count} child items? This cannot be undone."
+        else:
+            warning += "? This cannot be undone."
 
         # Confirm deletion
         confirm = messagebox.askyesno(
             "Confirm Deletion",
-            f"Are you sure you want to delete the selected {item_type}?",
+            warning,
         )
         if confirm:
-            # Use `DatabaseHandler` to perform the deletion
+            # Delete section and all descendants
             self.db.delete_section(item_id)
 
             # Remove the item from the Treeview
@@ -1391,8 +1392,6 @@ class OutLineEditorApp:
             self.title_entry.delete(0, tk.END)
             self.questions_text.delete(1.0, tk.END)
 
-            print(f"Deleted: {item_type.capitalize()} deleted successfully.")
-            
             # Update numbering 
             numbering_dict = self.db.generate_numbering()
             self.calculate_numbering(numbering_dict)
