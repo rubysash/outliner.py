@@ -101,6 +101,7 @@ class OutLineEditorApp:
         self.style = Style(THEME)
         self.root = root
         self.root.title(f"Outline Editor v{VERSION}")
+
         
         # tree item tracking for lazy loading work around
         self._suppress_selection_event = False
@@ -191,6 +192,9 @@ class OutLineEditorApp:
 
         # Load initial data into the editor
         self.load_from_database()
+        
+        # Update title with database info
+        self.update_title()
 
         # Bind notebook tab change to save data and refresh the tree
         #self.notebook.bind("<<NotebookTabChanged>>", lambda event: (self.save_data(), self.refresh_tree()))
@@ -199,6 +203,22 @@ class OutLineEditorApp:
 
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def update_title(self):
+        """Update the title bar with version, database name, and record count."""
+        try:
+            # Get record count
+            self.db.cursor.execute("SELECT COUNT(*) FROM sections")
+            count = self.db.cursor.fetchone()[0]
+            
+            # Get database filename without path
+            db_name = self.db.db_name.split("/")[-1]
+            
+            # Update title
+            self.root.title(f"Outline Editor v{VERSION} - {db_name}, {count} records")
+        except Exception as e:
+            print(f"Error updating title: {e}")
+            self.root.title(f"Outline Editor v{VERSION}")
 
     def on_tab_change(self, event):
         """Handle notebook tab changes while preserving tree selection."""
@@ -293,89 +313,6 @@ class OutLineEditorApp:
                 button.configure(state=state)
         for button in self.exports_buttons.winfo_children():
             button.configure(state=state)
-
-    @timer
-    def handle_load_database(self):
-        """Handle loading a database file with proper encryption management."""
-        file_path = askopenfilename(
-            defaultextension=".db",
-            filetypes=[("SQLite Database", "*.db")],
-            title="Select Database File"
-        )
-        if not file_path:
-            return
-
-        try:
-            # Create a temporary database connection to verify the file
-            temp_conn = sqlite3.connect(file_path)
-            temp_cursor = temp_conn.cursor()
-            
-            # Check for required tables
-            temp_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
-            if not temp_cursor.fetchone():
-                temp_conn.close()
-                raise ValueError("Invalid database: 'settings' table not found.")
-
-            # Get stored password hash
-            temp_cursor.execute("SELECT value FROM settings WHERE key = ?", ("password",))
-            stored_hash = temp_cursor.fetchone()
-            if not stored_hash:
-                temp_conn.close()
-                raise ValueError("No password found in database.")
-            
-            temp_conn.close()
-
-            # Prompt for password
-            while True:
-                password = simpledialog.askstring(
-                    "Database Password",
-                    "Enter the password for this database:",
-                    show="*"
-                )
-                if not password:
-                    return  # User cancelled
-
-                try:
-                    # Create new encryption manager for validation
-                    test_manager = EncryptionManager(password)
-                    
-                    # Create new database handler with the test manager
-                    new_db = DatabaseHandler(file_path, test_manager)
-                    
-                    # Validate the password
-                    if not new_db.validate_password(password):
-                        messagebox.showerror("Error", "Invalid password. Please try again.")
-                        continue
-                    
-                    # Password validated, update the current database
-                    self.db.close()
-                    self.db = new_db
-                    self.encryption_manager = test_manager
-                    self.db.encryption_manager = test_manager  # Ensure DB handler has the current manager
-                    self.is_authenticated = True
-                    self.password_validated = True
-                    
-                    # Clear editor fields
-                    self.title_entry.delete(0, tk.END)
-                    self.questions_text.delete(1.0, tk.END)
-                    self.last_selected_item_id = None
-                    
-                    # Enable UI and refresh tree
-                    self.set_ui_state(True)
-                    self.refresh_tree()
-                    
-                    messagebox.showinfo("Success", f"Database loaded successfully from {file_path}")
-                    break
-                    
-                except Exception as e:
-                    print(f"Validation error: {e}")
-                    messagebox.showerror("Error", f"345 Failed to validate password: {e}")
-                    continue
-
-        except Exception as e:
-            print(f"Database loading error: {e}")
-            messagebox.showerror("Error", f"350. Failed to load database: {e}")
-            self.handle_authentication_failure("Failed to authenticate with the loaded database.")
 
     
     # TABS
@@ -1088,6 +1025,90 @@ class OutLineEditorApp:
     # CRUD RELATED
 
     @timer
+    def handle_load_database(self):
+        """Handle loading a database file with proper encryption management."""
+        file_path = askopenfilename(
+            defaultextension=".db",
+            filetypes=[("SQLite Database", "*.db")],
+            title="Select Database File"
+        )
+        if not file_path:
+            return
+
+        try:
+            # Create a temporary database connection to verify the file
+            temp_conn = sqlite3.connect(file_path)
+            temp_cursor = temp_conn.cursor()
+            
+            # Check for required tables
+            temp_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+            if not temp_cursor.fetchone():
+                temp_conn.close()
+                raise ValueError("Invalid database: 'settings' table not found.")
+
+            # Get stored password hash
+            temp_cursor.execute("SELECT value FROM settings WHERE key = ?", ("password",))
+            stored_hash = temp_cursor.fetchone()
+            if not stored_hash:
+                temp_conn.close()
+                raise ValueError("No password found in database.")
+            
+            temp_conn.close()
+
+            # Prompt for password
+            while True:
+                password = simpledialog.askstring(
+                    "Database Password",
+                    "Enter the password for this database:",
+                    show="*"
+                )
+                if not password:
+                    return  # User cancelled
+
+                try:
+                    # Create new encryption manager for validation
+                    test_manager = EncryptionManager(password)
+                    
+                    # Create new database handler with the test manager
+                    new_db = DatabaseHandler(file_path, test_manager)
+                    
+                    # Validate the password
+                    if not new_db.validate_password(password):
+                        messagebox.showerror("Error", "Invalid password. Please try again.")
+                        continue
+                    
+                    # Password validated, update the current database
+                    self.db.close()
+                    self.db = new_db
+                    self.encryption_manager = test_manager
+                    self.db.encryption_manager = test_manager  # Ensure DB handler has the current manager
+                    self.is_authenticated = True
+                    self.password_validated = True
+                    self.update_title() 
+                    
+                    # Clear editor fields
+                    self.title_entry.delete(0, tk.END)
+                    self.questions_text.delete(1.0, tk.END)
+                    self.last_selected_item_id = None
+                    
+                    # Enable UI and refresh tree
+                    self.set_ui_state(True)
+                    self.refresh_tree()
+                    
+                    messagebox.showinfo("Success", f"Database loaded successfully from {file_path}")
+                    break
+                    
+                except Exception as e:
+                    print(f"Validation error: {e}")
+                    messagebox.showerror("Error", f"345 Failed to validate password: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"Database loading error: {e}")
+            messagebox.showerror("Error", f"350. Failed to load database: {e}")
+            self.handle_authentication_failure("Failed to authenticate with the loaded database.")
+
+    @timer
     def load_from_database(self):
         """
         Load and populate the root-level nodes in the TreeView.
@@ -1319,6 +1340,7 @@ class OutLineEditorApp:
             if refresh:
                 self.refresh_tree()
                 self.select_item(self.last_selected_item_id)
+            self.update_title() 
 
         except Exception as e:
             print(f"Encryption Error: {e}")
@@ -1427,6 +1449,8 @@ class OutLineEditorApp:
             
             # Enable UI elements
             self.set_ui_state(True)
+            
+            self.update_title()
             
             messagebox.showinfo(
                 "Success", 

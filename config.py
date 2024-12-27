@@ -41,6 +41,7 @@ COLOR_THRESHOLDS = {
 # Version Info
 '''
 .36 - STABLE controls for export all/some because no "unselect" exists
+added dynamic title version, db file name, # records
 .35 - STABLE node exports for json and docx working.
 Error in json imports fixed, padding was required
 .34 - DEV - Export JSON/Import seems broken at moment
