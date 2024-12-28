@@ -52,7 +52,7 @@ class PasswordChangeDialog(tk.Toplevel):
         self.current_password.pack(pady=5, padx=20, fill="x")
         
         # New password
-        ttk.Label(self, text="New Password (min 14 characters):").pack(pady=(15, 5))
+        ttk.Label(self, text=f"New Password (min {PASSWORD_MIN_LENGTH} characters):").pack(pady=(15, 5))
         self.new_password = ttk.Entry(self, show="*")
         self.new_password.pack(pady=5, padx=20, fill="x")
         
@@ -86,7 +86,7 @@ class PasswordChangeDialog(tk.Toplevel):
             return
             
         if len(new) < PASSWORD_MIN_LENGTH:
-            messagebox.showerror("Error", "New password must be at least 14 characters.")
+            messagebox.showerror("Error", f"New password must be at least {PASSWORD_MIN_LENGTH} characters.")
             return
             
         self.result = (current, new)
@@ -270,7 +270,7 @@ class OutLineEditorApp:
             while True:
                 password = simpledialog.askstring(
                     "Set Password",
-                    "No password found. Set a new password (min. 14 characters):",
+                    f"No password found. Set a new password (min. {PASSWORD_MIN_LENGTH} characters):",
                     show="*",
                 )
                 if not password:
@@ -279,7 +279,7 @@ class OutLineEditorApp:
                     sys.exit()  # Exit the process entirely
 
                 if len(password) < PASSWORD_MIN_LENGTH:
-                    messagebox.showerror("Invalid Password", "Password must be at least 14 characters.")
+                    messagebox.showerror("Invalid Password", f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
                     continue
 
                 self.db.set_password(password)
@@ -1411,7 +1411,7 @@ class OutLineEditorApp:
             while True:
                 password = simpledialog.askstring(
                     "Set Password",
-                    "Enter a new password for this database (min. 14 characters):",
+                    f"Enter a new password for this database (min. {PASSWORD_MIN_LENGTH} characters):",
                     show="*"
                 )
                 if not password:
@@ -1420,7 +1420,7 @@ class OutLineEditorApp:
                 if len(password) < PASSWORD_MIN_LENGTH:
                     messagebox.showerror(
                         "Invalid Password", 
-                        "Password must be at least 14 characters long."
+                        f"Password must be at least {PASSWORD_MIN_LENGTH} characters long."
                     )
                     continue
                     

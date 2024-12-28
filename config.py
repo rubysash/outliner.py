@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.38"
+VERSION = "0.39"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -40,6 +40,8 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.39 - STABLE - colorama init somehow vanished, re-added.
+set {PASSWORD_MIN_LENGTH} everywhere instead of hard coding
 .38 - STABLE - Deleting of entire trees, with warning added
 .37 - STABLE added pdf export like docx/json
 .36 - STABLE controls for export all/some because no "unselect" exists
@@ -66,3 +68,5 @@ Keys are cached for 300s before decrypting again
 Treeview shows plaintext vs encrypted (bug fix)
 .25 - DEV. movement works, lazy loading, cached keys, search not working
 '''
+
+

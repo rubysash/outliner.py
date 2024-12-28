@@ -1,9 +1,12 @@
 import time
 import inspect
-from colorama import Fore, Style
+from colorama import Fore, Style, init
 from config import COLOR_THRESHOLDS, MIN_TIME_IN_MS_THRESHOLD, MAX_TIME_IN_MS_THRESHOLD, TIMER_ENABLED
 
 _warning_shown = False
+
+# init colorama
+init(autoreset=True)
 
 def show_timer_warning():
     """Show initial warning about performance monitoring."""
