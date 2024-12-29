@@ -14,6 +14,7 @@ from manager_docx import export_to_docx
 from manager_json import load_from_json_file
 from manager_encryption import EncryptionManager
 from manager_pdf import export_to_pdf
+from manager_passwords import get_password
 
 from database import DatabaseHandler
 from config import (
@@ -35,65 +36,6 @@ from config import (
     INDENT_SIZE,
     PASSWORD_MIN_LENGTH
 )
-
-class PasswordChangeDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.result = None
-        
-        self.title("Change Database Password")
-        self.geometry("300x400")
-        self.resizable(False, False)
-        
-        # Current password
-        ttk.Label(self, text="Current Password:").pack(pady=(20, 5))
-        self.current_password = ttk.Entry(self, show="*")
-        self.current_password.pack(pady=5, padx=20, fill="x")
-        
-        # New password
-        ttk.Label(self, text=f"New Password (min {PASSWORD_MIN_LENGTH} characters):").pack(pady=(15, 5))
-        self.new_password = ttk.Entry(self, show="*")
-        self.new_password.pack(pady=5, padx=20, fill="x")
-        
-        # Confirm new password
-        ttk.Label(self, text="Confirm New Password:").pack(pady=(15, 5))
-        self.confirm_password = ttk.Entry(self, show="*")
-        self.confirm_password.pack(pady=5, padx=20, fill="x")
-        
-        # Buttons
-        button_frame = ttk.Frame(self)
-        button_frame.pack(pady=20, fill="x")
-        
-        ttk.Button(button_frame, text="Change", command=self.change).pack(side="left", padx=20)
-        ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side="right", padx=20)
-        
-        # Center the dialog
-        self.transient(parent)
-        self.grab_set()
-        
-    def change(self):
-        current = self.current_password.get()
-        new = self.new_password.get()
-        confirm = self.confirm_password.get()
-        
-        if not all([current, new, confirm]):
-            messagebox.showerror("Error", "All fields are required.")
-            return
-            
-        if new != confirm:
-            messagebox.showerror("Error", "New passwords do not match.")
-            return
-            
-        if len(new) < PASSWORD_MIN_LENGTH:
-            messagebox.showerror("Error", f"New password must be at least {PASSWORD_MIN_LENGTH} characters.")
-            return
-            
-        self.result = (current, new)
-        self.destroy()
-        
-    def cancel(self):
-        self.destroy()
 
 
 class OutLineEditorApp:
@@ -162,6 +104,9 @@ class OutLineEditorApp:
         self.create_exports_tab(
             LABEL_PADX, LABEL_PADY, FRAME_PADX, FRAME_PADY, BUTTON_PADX, BUTTON_PADY
         )
+        
+        # context menu
+        self.create_context_menu()
 
         # Add new attributes for security state
         self.is_authenticated = False
@@ -236,57 +181,6 @@ class OutLineEditorApp:
         if selected_id:
             self.select_item(f"I{selected_id}")
 
-    @timer
-    def initialize_password(self):
-        """
-        Handles password logic: prompts user for existing password or sets a new one.
-        Initializes the EncryptionManager.
-        """
-        self.db.cursor.execute(
-            "SELECT value FROM settings WHERE key = ?", ("password",)
-        )
-        result = self.db.cursor.fetchone()
-
-        if result:
-            # Password exists; validate user input
-            while True:
-                password = simpledialog.askstring(
-                    "Enter Password",
-                    "Enter the password for this database:",
-                    show="*",
-                )
-                if not password:
-                    # Exit the application if password entry is canceled
-                    self.root.destroy()  # Close the main window
-                    sys.exit()  # Exit the process entirely
-
-                if self.db.validate_password(password):
-                    self.encryption_manager = EncryptionManager(password=password)
-                    break
-                else:
-                    messagebox.showerror("Invalid Password", "The password is incorrect. Try again.")
-        else:
-            # No password set; create a new one
-            while True:
-                password = simpledialog.askstring(
-                    "Set Password",
-                    f"No password found. Set a new password (min. {PASSWORD_MIN_LENGTH} characters):",
-                    show="*",
-                )
-                if not password:
-                    # Exit the application if password entry is canceled
-                    self.root.destroy()  # Close the main window
-                    sys.exit()  # Exit the process entirely
-
-                if len(password) < PASSWORD_MIN_LENGTH:
-                    messagebox.showerror("Invalid Password", f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
-                    continue
-
-                self.db.set_password(password)
-                self.encryption_manager = EncryptionManager(password=password)
-                messagebox.showinfo("Success", "Password has been set.")
-                break
-
     def handle_authentication_failure(self, message="Authentication failed"):
         """Handle failed authentication attempts."""
         self.is_authenticated = False
@@ -315,7 +209,182 @@ class OutLineEditorApp:
         for button in self.exports_buttons.winfo_children():
             button.configure(state=state)
 
+
+    # PASSWORDS
     
+    def initialize_password(self):
+        self.db.cursor.execute(
+            "SELECT value FROM settings WHERE key = ?", ("password",)
+        )
+        result = self.db.cursor.fetchone()
+
+        if result:
+            # Password exists; validate user input
+            while True:
+                password = get_password(
+                    self.root,
+                    "Enter Password",
+                    "Enter the password for this database:"
+                )
+                
+                if password is None:  # User cancelled
+                    if messagebox.askyesno(
+                        "Load Different Database?",
+                        "Would you like to load a different database?"
+                    ):
+                        success = self.handle_load_database()
+                        if success:
+                            return
+                        continue
+                    else:
+                        # Exit the application instead of resetting
+                        self.root.destroy()  # Close the main window
+                        sys.exit()  # Terminate the application completely
+
+                if self.db.validate_password(password):
+                    self.encryption_manager = EncryptionManager(password=password)
+                    break
+                else:
+                    messagebox.showerror(
+                        "Invalid Password", 
+                        "The password is incorrect. Please try again."
+                    )
+        else:
+            # No password set; create a new one
+            while True:
+                result = get_password(
+                    self.root,
+                    "Set New Password",
+                    f"Enter a new password (min. {PASSWORD_MIN_LENGTH} characters):",
+                    confirm=True,
+                    min_length=PASSWORD_MIN_LENGTH
+                )
+                
+                if result is None:  # User cancelled
+                    if messagebox.askyesno(
+                        "Load Existing Database?", 
+                        "Would you like to load an existing database instead?"
+                    ):
+                        success = self.handle_load_database()
+                        if success:
+                            return
+                        continue
+                    else:
+                        self.root.destroy()
+                        sys.exit()
+                        
+                password, confirm = result
+                self.db.set_password(password)
+                self.encryption_manager = EncryptionManager(password=password)
+                messagebox.showinfo("Success", "Password has been set.")
+                break
+
+    # Update change_database_password method
+    def change_database_password(self):
+        result = get_password(
+            self.root,
+            "Change Database Password",
+            "Enter current password:",
+            confirm=False
+        )
+        
+        if result is None:
+            return
+            
+        current_password = result
+        
+        if not self.db.validate_password(current_password):
+            messagebox.showerror("Error", "Current password is incorrect.")
+            return
+            
+        result = get_password(
+            self.root,
+            "Change Database Password",
+            f"Enter new password (min {PASSWORD_MIN_LENGTH} characters):",
+            confirm=True,
+            min_length=PASSWORD_MIN_LENGTH
+        )
+        
+        if result is None:
+            return
+            
+        new_password, _ = result
+        
+        try:
+            self.db.change_password(current_password, new_password)
+            self.encryption_manager = EncryptionManager(new_password)
+            self.is_authenticated = True
+            self.password_validated = True
+            self.set_ui_state(True)
+            messagebox.showinfo("Success", "Password changed successfully.")
+        except Exception as e:
+            self.handle_authentication_failure(f"Failed to change password: {e}")
+
+
+    # RIGHT CLICK CONTEXT
+    
+    def create_context_menu(self):
+        """Create and bind the context menu to the TreeView."""
+        self.tree_menu = tk.Menu(self.tree, tearoff=0)
+        self.tree_menu.add_command(label="Add Section", command=self.add_child_section)
+
+        # Bind right-click to show the context menu
+        self.tree.bind("<Button-3>", self.show_context_menu)
+
+    def show_context_menu(self, event):
+        """Display the context menu at the pointer location."""
+        # Identify the item clicked
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "tree":
+            item = self.tree.identify_row(event.y)
+            if item:  # Ensure an item was clicked
+                self.tree.selection_set(item)  # Select the item
+                self.tree_menu.post(event.x_root, event.y_root)
+
+    def add_child_section(self):
+        """Add a new child section to the selected parent."""
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showerror("Error", "No item selected.")
+            return
+
+        # Retrieve the parent ID and type
+        parent_id = self.get_item_id(selected_item[0])
+        parent_type = self.get_item_type(selected_item[0])
+
+        # Determine the new section type based on parent type
+        if parent_type == "header":
+            section_type = "category"
+            title_prefix = "Category"
+        elif parent_type == "category":
+            section_type = "subcategory"
+            title_prefix = "Subcategory"
+        elif parent_type == "subcategory":
+            section_type = "subheader"
+            title_prefix = "Subheader"
+        else:
+            messagebox.showerror(
+                "Error",
+                f"Cannot add a child to a section of type '{parent_type}'."
+            )
+            return
+
+        # Add the new section to the database
+        try:
+            section_id = self.add_section(
+                section_type=section_type,
+                parent_id=parent_id,  # Pass parent_id directly
+                title_prefix=title_prefix
+            )
+            if section_id:
+                self.refresh_tree()
+                self.select_item(f"I{section_id}")
+            else:
+                raise ValueError("Database operation failed.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to add the section: {e}")
+
+   
     # TABS
 
     def create_editor_tab(self, label_padx, label_pady, entry_pady, section_pady, button_padx, button_pady):
@@ -483,29 +552,16 @@ class OutLineEditorApp:
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
 
-
     # TREE MANIPULATION
 
     @timer
-    def add_section(self, section_type, parent_type=None, title_prefix="Section"):
+    def add_section(self, section_type, parent_id=None, title_prefix="Section"):
         """
-        Add a new section (H1, H2, H3, H4) to the tree with proper encryption.
+        Add a new section to the tree with proper encryption.
         """
         if not self.is_authenticated or not self.encryption_manager:
             messagebox.showerror("Error", "Not authenticated. Please verify your password.")
             return
-
-        previous_selection = self.tree.selection()
-
-        if parent_type:
-            if not previous_selection or self.get_item_type(previous_selection[0]) != parent_type:
-                messagebox.showerror(
-                    "Error", f"Please select a valid {parent_type} to add a {section_type}."
-                )
-                return
-            parent_id = self.get_item_id(previous_selection[0])
-        else:
-            parent_id = None
 
         try:
             # Calculate the next placement value
@@ -531,7 +587,7 @@ class OutLineEditorApp:
             
             # Clear the tree and reload
             self.tree.delete(*self.tree.get_children())
-            self.load_from_database()  # This includes populating the tree
+            self.load_from_database()
             
             # Select and make visible the new item
             new_item_id = f"I{section_id}"
@@ -541,7 +597,7 @@ class OutLineEditorApp:
                 self.tree.see(new_item_id)
             
             # Force an immediate update of numbering
-            self.db.conn.commit()  # Use conn.commit() instead of cursor.commit()
+            self.db.conn.commit()
             numbering_dict = self.db.generate_numbering()
             self.calculate_numbering(numbering_dict)
             
@@ -1042,7 +1098,7 @@ class OutLineEditorApp:
             title="Select Database File"
         )
         if not file_path:
-            return
+            return False  # User cancelled file selection
 
         try:
             # Create a temporary database connection to verify the file
@@ -1066,13 +1122,16 @@ class OutLineEditorApp:
 
             # Prompt for password
             while True:
-                password = simpledialog.askstring(
+                dialog = PasswordDialog(
+                    self.root,
                     "Database Password",
-                    "Enter the password for this database:",
-                    show="*"
+                    "Enter the password for this database:"
                 )
-                if not password:
-                    return  # User cancelled
+                self.root.wait_window(dialog)
+                password = dialog.result
+                
+                if password is None:
+                    return False  # User cancelled password entry
 
                 try:
                     # Create new encryption manager for validation
@@ -1090,7 +1149,7 @@ class OutLineEditorApp:
                     self.db.close()
                     self.db = new_db
                     self.encryption_manager = test_manager
-                    self.db.encryption_manager = test_manager  # Ensure DB handler has the current manager
+                    self.db.encryption_manager = test_manager
                     self.is_authenticated = True
                     self.password_validated = True
                     self.update_title() 
@@ -1105,17 +1164,20 @@ class OutLineEditorApp:
                     self.refresh_tree()
                     
                     messagebox.showinfo("Success", f"Database loaded successfully from {file_path}")
-                    break
-                    
+                    return True
+                        
                 except Exception as e:
                     print(f"Validation error: {e}")
-                    messagebox.showerror("Error", f"345 Failed to validate password: {e}")
+                    messagebox.showerror("Error", f"Failed to validate password: {e}")
                     continue
 
         except Exception as e:
             print(f"Database loading error: {e}")
-            messagebox.showerror("Error", f"350. Failed to load database: {e}")
+            messagebox.showerror("Error", f"Failed to load database: {e}")
             self.handle_authentication_failure("Failed to authenticate with the loaded database.")
+            return False
+
+        return False
 
     @timer
     def load_from_database(self):
@@ -1738,26 +1800,6 @@ class OutLineEditorApp:
             messagebox.showerror("Search Error", f"An error occurred while searching: {str(e)}")
 
     # UTILITY
-
-    @timer
-    def change_database_password(self):
-        """Enhanced password change with proper validation and UI state management."""
-        dialog = PasswordChangeDialog(self.root)
-        self.root.wait_window(dialog)
-        
-        if dialog.result:
-            current_password, new_password = dialog.result
-            try:
-                self.db.change_password(current_password, new_password)
-                self.encryption_manager = EncryptionManager(new_password)
-                self.is_authenticated = True
-                self.password_validated = True
-                self.set_ui_state(True)
-                messagebox.showinfo("Success", "Password changed successfully.")
-            except ValueError as e:
-                self.handle_authentication_failure(str(e))
-            except Exception as e:
-                self.handle_authentication_failure(f"Failed to change password: {e}")
 
     def focus_title_entry(self, event):
         """Move focus to the title entry and position the cursor at the end."""

@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.39"
+VERSION = "0.40"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -40,6 +40,8 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.40 - Right click add section to tree
+moved password management to it's own class, can't force autofocus from CLI
 .39 - STABLE - colorama init somehow vanished, re-added.
 set {PASSWORD_MIN_LENGTH} everywhere instead of hard coding
 .38 - STABLE - Deleting of entire trees, with warning added
@@ -69,4 +71,6 @@ Treeview shows plaintext vs encrypted (bug fix)
 .25 - DEV. movement works, lazy loading, cached keys, search not working
 '''
 
+
+# 40000d6f
 
