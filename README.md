@@ -52,16 +52,18 @@ I wanted something to create collapsible treeviews and take notes on each sectio
 7. Edit `config.py` to customize font, colors, and other settings.
 8. Run the application using `start.bat` or a shortcut to it.
 
-### Linux
+### Linux/Macintrash
 1. Install Python 3.10 or higher.
 2. Clone the repository or unzip the files into `/home/username/outliner`.
 3. Open a terminal and navigate to `/home/username/outliner`.
 4. Create a virtual environment: `python3 -m venv outliner`.
 5. Activate the virtual environment: `source outliner/bin/activate`.
-6. Install dependencies: `pip install -r requirements.txt`.
+6. Install dependencies: `cd /home/username/outliner && pip install -r requirements.txt`.
 7. Edit `config.py` to customize font, colors, and other settings.
 8. Set execute permissions `chmod +x outliner.py`
 9. Run the application: `./outliner.py`.
 
-Password for default db is 1234
+### Password
+
+default db is 1234 for demo db
 
