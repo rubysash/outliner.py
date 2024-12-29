@@ -7,10 +7,12 @@ __pycache__/
 Include/
 Lib/
 Scripts/
+pyvenv.cfg
 
 # existing dbs
 dbs/
 *.db
+!outline.db
 
 # Any created files
 *.json
@@ -20,8 +22,9 @@ dbs/
 # Environment variables
 .env
 
-# Log files
+# Log files and backups
 *.log
+*.back*
 
 # OS-specific files
 .DS_Store
