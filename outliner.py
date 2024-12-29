@@ -34,8 +34,50 @@ from config import (
     H4_SIZE,
     P_SIZE,
     INDENT_SIZE,
-    PASSWORD_MIN_LENGTH
+    PASSWORD_MIN_LENGTH,
+    WARNING_LIMIT_ITEM_COUNT,
+    WARNING_DISPLAY_TIME_MS
 )
+
+class NotificationWindow(tk.Toplevel):
+    def __init__(self, parent, message, duration=3000):
+        super().__init__(parent)
+        
+        # Remove window decorations
+        self.overrideredirect(True)
+        
+        # Create label with warning styling
+        self.label = ttk.Label(
+            self,
+            text=message,
+            padding=10,
+            style="Warning.TLabel"
+        )
+        self.label.pack()
+        
+        # Configure warning style
+        style = ttk.Style()
+        style.configure(
+            "Warning.TLabel",
+            background='#fff3cd',  # Light yellow background
+            foreground='#856404',  # Dark yellow text
+            font=('Helvetica', 10)
+        )
+        
+        # Position at the top center of the main window
+        self.update_idletasks()
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        window_width = self.winfo_width()
+        
+        x = parent_x + (parent_width // 2) - (window_width // 2)
+        y = parent_y + 10  # 10 pixels from top
+        
+        self.geometry(f"+{x}+{y}")
+        
+        # Schedule the window to close
+        self.after(duration, self.destroy)
 
 
 class OutLineEditorApp:
@@ -327,7 +369,6 @@ class OutLineEditorApp:
         """Create and bind the context menu to the TreeView."""
         self.tree_menu = tk.Menu(self.tree, tearoff=0)
 
-        # Add section
         self.tree_menu.add_command(label="Add Section", command=self.add_child_section)
         
         # Add clone submenu
@@ -336,9 +377,16 @@ class OutLineEditorApp:
         clone_menu.add_command(label="Clone Everything", command=lambda: self.clone_section(clone_content=True))
         self.tree_menu.add_cascade(label="Clone", menu=clone_menu)
 
+        # Add expand/collapse menu
+        self.tree_menu.add_separator()
+        expand_menu = tk.Menu(self.tree_menu, tearoff=0)
+        expand_menu.add_command(label="Expand All", command=lambda: self.expand_selected_tree(True))
+        expand_menu.add_command(label="Collapse All", command=lambda: self.expand_selected_tree(False))
+        self.tree_menu.add_cascade(label="Tree", menu=expand_menu)
+
         # Add multiple separators and a disabled spacer for visual safety gap
         self.tree_menu.add_separator()
-        self.tree_menu.add_command(label=" ", state="disabled")  # Empty disabled item for spacing
+        self.tree_menu.add_command(label=" ", state="disabled")
         self.tree_menu.add_separator()
 
         # Add the delete option
@@ -519,6 +567,89 @@ class OutLineEditorApp:
                 f"Failed to clone section: {str(e)}"
             )
             self.db.conn.rollback()
+
+    def count_all_children(self, node_id):
+        """Count total number of children recursively."""
+        try:
+            return self.db.cursor.execute("""
+                WITH RECURSIVE descendants AS (
+                    SELECT id FROM sections WHERE parent_id = ?
+                    UNION ALL
+                    SELECT s.id 
+                    FROM sections s
+                    INNER JOIN descendants d ON s.parent_id = d.id
+                )
+                SELECT COUNT(*) FROM descendants
+            """, (node_id,)).fetchone()[0]
+        except Exception as e:
+            print(f"Error counting children: {e}")
+            return 0
+
+    def show_warning_notification(self, message):
+        """Show a temporary warning notification."""
+        NotificationWindow(
+            self.root, 
+            message, 
+            duration=WARNING_DISPLAY_TIME_MS
+        )
+
+    def expand_collapse_tree(self, node, expand=True):
+        """Recursively expand or collapse a node and all its children."""
+        try:
+            # Get the database ID for the node
+            node_id = self.get_item_id(node)
+            
+            if expand:
+                # Count total items that will need decryption
+                total_items = self.count_all_children(node_id)
+                
+                if total_items > WARNING_LIMIT_ITEM_COUNT:
+                    self.show_warning_notification(
+                        f"Processing {total_items} items, this may take a moment..."
+                    )
+            
+                # Batch process all nodes that need to be expanded
+                nodes_to_process = [(node, node_id)]
+                while nodes_to_process:
+                    current_node, current_id = nodes_to_process.pop(0)
+                    
+                    # Remove any hidden nodes
+                    children = self.tree.get_children(current_node)
+                    for child in children:
+                        if "hidden" in self.tree.item(child, "tags"):
+                            self.tree.delete(child)
+                    
+                    # Populate real children
+                    self.populate_tree(current_id, current_node)
+                    self.tree.item(current_node, open=True)
+                    
+                    # Add children to processing queue
+                    for child in self.tree.get_children(current_node):
+                        child_id = self.get_item_id(child)
+                        if child_id:
+                            nodes_to_process.append((child, child_id))
+            else:
+                # For collapse, we can simply collapse the root node
+                self.tree.item(node, open=False)
+                
+            # Calculate numbering once at the end
+            numbering_dict = self.db.generate_numbering()
+            self.calculate_numbering(numbering_dict)
+            
+            # Force a visual update
+            self.tree.update()
+                
+        except Exception as e:
+            print(f"Error in expand_collapse_tree: {e}")
+        
+    def expand_selected_tree(self, expand=True):
+        """Expand or collapse the selected node and all its children."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "No section selected.")
+            return
+            
+        self.expand_collapse_tree(selected[0], expand)
 
     # RIGHT CLICK CONTEXT NOTES
     
@@ -1406,33 +1537,36 @@ class OutLineEditorApp:
 
     @timer
     def populate_tree(self, parent_id=None, parent_node=""):
-        """
-        Populate the tree lazily with nodes.
-        Args:
-            parent_id: The database ID of the parent section
-            parent_node: The treeview ID of the parent node
-        """
-        children = self.db.load_children(parent_id)
-        for child_id, encrypted_title, parent_id in children:
-            if not child_id:  # Skip invalid entries
-                continue
-                
-            title = self.db.decrypt_safely(encrypted_title, default="Untitled")
-            node_id = f"I{child_id}"
+        """Populate the tree lazily with nodes."""
+        try:
+            # Batch fetch all children for this parent
+            children = self.db.load_children(parent_id)
             
-            # Check if node already exists
-            if not self.tree.exists(node_id):
-                # Only create nodes that have actual content
-                if title and title.strip():
+            # Pre-check which nodes have children
+            child_ids = [child[0] for child in children]
+            has_children_dict = self.db.batch_has_children(child_ids)
+            
+            # Process all children in one go
+            for child_id, encrypted_title, parent_id in children:
+                if not child_id:  # Skip invalid entries
+                    continue
+                    
+                title = self.db.decrypt_safely(encrypted_title, default="Untitled")
+                node_id = f"I{child_id}"
+                
+                # Check if node already exists
+                if not self.tree.exists(node_id) and title and title.strip():
                     node = self.tree.insert(parent_node, "end", node_id, text=title)
                     
-                    # If this node has children, configure it to show the + sign
-                    if self.db.has_children(child_id):
+                    # Use pre-fetched has_children info
+                    if has_children_dict.get(child_id, False):
                         dummy_id = f"dummy_{node_id}"
-                        # Only add dummy if it doesn't exist
                         if not self.tree.exists(dummy_id):
                             self.tree.insert(node, 0, dummy_id, text="", tags=["hidden"])
-
+                            
+        except Exception as e:
+            print(f"Error in populate_tree: {e}")
+        
     @timer
     def load_database_from_file(self, db_path):
         """Load an existing database file and verify its schema and password."""

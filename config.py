@@ -2,9 +2,13 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.44"
+VERSION = "0.45"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
+
+# WARNING FOR DECRYPTION TIMES
+WARNING_LIMIT_ITEM_COUNT = 20   # decrypt/encrypt more than this amount, will give warning
+WARNING_DISPLAY_TIME_MS = 3000  # How long warning shows (3 seconds)
 
 # UI Fonts
 GLOBAL_FONT_FAMILY = "Helvetica"  # Set the global font family
@@ -40,6 +44,8 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.45 - STABLE Expand/Collapse all children context
+refactored recursive tree refresh
 .44 - STABLE Clone Everything option
 .43 - STABLE db_dump.py troubleshooting tool was not dumping all tables, corrected
 Clone section (titles only)
