@@ -328,6 +328,7 @@ class OutLineEditorApp:
         self.tree_menu = tk.Menu(self.tree, tearoff=0)
 
         self.tree_menu.add_command(label="Add Section", command=self.add_child_section)
+        self.tree_menu.add_command(label="Clone Section", command=self.clone_section)  # Add this line
 
         # Add multiple separators and a disabled spacer for visual safety gap
         self.tree_menu.add_separator()
@@ -397,6 +398,99 @@ class OutLineEditorApp:
         """Handle deletion from context menu using existing deletion logic."""
         self.delete_selected()
    
+    def clone_section(self):
+        """Clone the selected section and all its children."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "No section selected for cloning.")
+            return
+
+        source_id = self.get_item_id(selected[0])
+        parent_node = self.tree.parent(selected[0])
+        parent_id = self.get_item_id(parent_node) if parent_node else None
+        
+        try:
+            # Get the source section's type and title
+            self.db.cursor.execute(
+                "SELECT type, title FROM sections WHERE id = ?", 
+                (source_id,)
+            )
+            section_type, encrypted_title = self.db.cursor.fetchone()
+            original_title = self.db.decrypt_safely(encrypted_title)
+            
+            # Create the cloned parent section
+            cloned_title = f"{original_title}-Cloned"
+            
+            # Get the placement for the new section
+            self.db.cursor.execute(
+                """
+                SELECT COALESCE(MAX(placement), 0) + 1
+                FROM sections
+                WHERE parent_id IS ?
+                """,
+                (parent_id,)
+            )
+            next_placement = self.db.cursor.fetchone()[0]
+            
+            # Add the cloned parent section
+            new_parent_id = self.db.add_section(
+                cloned_title,
+                section_type,
+                parent_id,
+                next_placement
+            )
+
+            # Recursively clone children
+            def clone_children(source_parent_id, new_parent_id):
+                """
+                source_parent_id: The ID of the original section whose children we're cloning
+                new_parent_id: The ID of the new cloned parent where children will be attached
+                """
+                self.db.cursor.execute(
+                    """
+                    SELECT id, title, type, placement 
+                    FROM sections 
+                    WHERE parent_id = ? 
+                    ORDER BY placement
+                    """,
+                    (source_parent_id,)
+                )
+                children = self.db.cursor.fetchall()
+                
+                for idx, (child_id, encrypted_title, child_type, _) in enumerate(children, 1):
+                    # Decrypt the child's title
+                    child_title = self.db.decrypt_safely(encrypted_title)
+                    
+                    # Add the cloned child with incremental placement
+                    new_child_id = self.db.add_section(
+                        child_title,  # Keep original title for children
+                        child_type,
+                        new_parent_id,
+                        idx  # Use enumerated index for placement
+                    )
+                    
+                    # Recursively clone this child's children
+                    clone_children(child_id, new_child_id)
+
+            # Start the recursive cloning
+            clone_children(source_id, new_parent_id)
+            
+            # Refresh the tree and select the new cloned section
+            self.refresh_tree()
+            self.select_item(f"I{new_parent_id}")
+            
+            messagebox.showinfo(
+                "Success", 
+                f"Successfully cloned section '{original_title}'"
+            )
+            
+        except Exception as e:
+            print(f"Error cloning section: {e}")
+            messagebox.showerror(
+                "Error",
+                f"Failed to clone section: {str(e)}"
+            )
+            self.db.conn.rollback()
 
     # RIGHT CLICK CONTEXT NOTES
     

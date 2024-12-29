@@ -20,6 +20,8 @@ import os
 import sys
 from colorama import Fore, Style
 
+TRUNCATE_LIMIT = 40
+
 def truncate_string(s, max_length=20):
     """Truncate a string to a specified length and add ellipsis if needed."""
     if isinstance(s, str):
@@ -40,12 +42,13 @@ def dump_database(db_name):
 
     # Color palette for headers and content
     colors = [Fore.RED, Fore.LIGHTRED_EX, Fore.YELLOW, Fore.GREEN, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
-
-    # Keep track of column names and their assigned colors
     column_colors = {}
 
     # First pass to gather column names and assign colors
-    for table_info in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    
+    for table_info in tables:
         table_name = table_info[0]
         cursor.execute(f"PRAGMA table_info({table_name})")
         for idx, column_info in enumerate(cursor.fetchall()):
@@ -55,22 +58,19 @@ def dump_database(db_name):
 
     # Dump the schema
     print(colorize("--- Database Schema ---", Fore.CYAN))
-    for row in cursor.execute("SELECT sql FROM sqlite_master WHERE type='table'"):
+    for row in cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL"):
         schema_sql = row[0]
         schema_lines = schema_sql.splitlines()
 
         for line in schema_lines:
             stripped_line = line.strip()
             if "CREATE TABLE" in stripped_line or stripped_line == ")":
-                # Print the CREATE TABLE and closing ')' lines without colorization
                 print(line)
-            elif any(char in stripped_line for char in [',', '--', ')', 'CHECK']):  # Column definition lines
-                # Find the column name
+            elif any(char in stripped_line for char in [',', '--', ')', 'CHECK']):
                 parts = line.split()
                 if parts:
                     col_name = parts[0].strip()
                     if col_name in column_colors:
-                        # Colorize just the column name, keep the rest of the line as is
                         colored_line = line.replace(col_name, colorize(col_name, column_colors[col_name]), 1)
                         print(colored_line)
                     else:
@@ -80,10 +80,13 @@ def dump_database(db_name):
             else:
                 print(line)
 
-    # Dump the data
+    # Dump the data for all tables
     print(colorize("\n--- Table Records ---\n", Fore.CYAN))
-    for table_info in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+    for table_info in tables:
         table_name = table_info[0]
+        if table_name.startswith('sqlite_'):  # Skip internal SQLite tables
+            continue
+            
         print(colorize(f"Table: {table_name}", Fore.CYAN))
         
         # Fetch and colorize headers
@@ -93,14 +96,21 @@ def dump_database(db_name):
         print("Columns:", ", ".join(header_row))
         
         # Fetch and colorize rows
-        cursor.execute(f"SELECT * FROM {table_name}")
-        for row in cursor.fetchall():
-            colored_row = []
-            for idx, col in enumerate(row):
-                col = truncate_string(col, 20)
-                color = column_colors.get(columns[idx], Fore.WHITE)
-                colored_row.append(colorize(str(col), color))
-            print(", ".join(colored_row))
+        try:
+            cursor.execute(f"SELECT * FROM {table_name}")
+            rows = cursor.fetchall()
+            if not rows:
+                print("(No records found)")
+            else:
+                for row in rows:
+                    colored_row = []
+                    for idx, col in enumerate(row):
+                        col = truncate_string(col, TRUNCATE_LIMIT)
+                        color = column_colors.get(columns[idx], Fore.WHITE)
+                        colored_row.append(colorize(str(col), color))
+                    print(", ".join(colored_row))
+        except sqlite3.OperationalError as e:
+            print(f"Error reading table {table_name}: {e}")
 
     conn.close()
 

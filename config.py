@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.42"
+VERSION = "0.43"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -11,7 +11,7 @@ GLOBAL_FONT_FAMILY = "Helvetica"  # Set the global font family
 GLOBAL_FONT_SIZE = 12  # Set the global font size
 GLOBAL_FONT = (GLOBAL_FONT_FAMILY, GLOBAL_FONT_SIZE)
 NOTES_FONT_FAMILY = "Consolas"  # Set the notes font family
-NOTES_FONT_SIZE = 10  # Set the notes font size
+NOTES_FONT_SIZE = 9  # Set the notes font size
 NOTES_FONT = (NOTES_FONT_FAMILY, NOTES_FONT_SIZE)
 
 # DOCX Exports
@@ -40,6 +40,8 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.43 - STABLE db_dump.py troubleshooting tool was not dumping all tables, corrected
+Clone section (titles only)
 .42 - STABLE Right click Notes copy, paste, select all
 .41 - STABLE Right click tree delete node
 .40 - STABLE Right click tree add section to tree
