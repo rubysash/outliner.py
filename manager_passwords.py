@@ -1,7 +1,10 @@
-# manager_passwords.py
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import Optional, Tuple
+
+from config import (
+    PASSWORD_MIN_LENGTH,
+)
 
 class PasswordDialog(tk.Toplevel):
     def __init__(
@@ -10,7 +13,7 @@ class PasswordDialog(tk.Toplevel):
         title: str,
         prompt: str,
         confirm_password: bool = False,
-        min_length: int = 3
+        min_length: int = PASSWORD_MIN_LENGTH
     ):
         super().__init__(parent)
         self.result: Optional[str | Tuple[str, str]] = None
@@ -21,8 +24,8 @@ class PasswordDialog(tk.Toplevel):
         self.transient(parent)
         
         # Center the dialog
-        window_width = 300
-        window_height = 200 if confirm_password else 150
+        window_width = 400
+        window_height = 260 if confirm_password else 210
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         center_x = int(screen_width/2 - window_width/2)
@@ -48,7 +51,7 @@ class PasswordDialog(tk.Toplevel):
         )
         self.password_entry.pack(fill='x', pady=(0,10))
         
-        # Second password field for confirmation
+        # Second password field for confirmation if needed
         if confirm_password:
             ttk.Label(
                 main_frame, 
@@ -61,26 +64,18 @@ class PasswordDialog(tk.Toplevel):
                 textvariable=self.confirm_var
             )
             self.confirm_entry.pack(fill='x', pady=(0,10))
+            
+            # Add binding for Tab key to move between fields
+            self.password_entry.bind('<Tab>', lambda e: self.confirm_entry.focus_set())
+            self.confirm_entry.bind('<Tab>', lambda e: self.password_entry.focus_set())
+            self.confirm_entry.bind('<Return>', lambda e: self.ok_clicked())
+        else:
+            self.password_entry.bind('<Tab>', lambda e: self.password_entry.focus_set())
         
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill='x', pady=(10,0))
-        
-        ttk.Button(
-            button_frame, 
-            text="OK", 
-            command=self.ok_clicked
-        ).pack(side='left', padx=5)
-        
-        ttk.Button(
-            button_frame, 
-            text="Cancel", 
-            command=self.cancel_clicked
-        ).pack(side='right', padx=5)
-        
-        # Bindings
+        # Key bindings for OK/Cancel
         self.bind('<Return>', lambda e: self.ok_clicked())
         self.bind('<Escape>', lambda e: self.cancel_clicked())
+        self.password_entry.bind('<Return>', lambda e: self.ok_clicked())
         
         # Focus handling
         self.attributes('-topmost', True)
@@ -92,11 +87,12 @@ class PasswordDialog(tk.Toplevel):
         self.focus_force()
         self.password_entry.focus_force()
         
-    def ok_clicked(self):
+    def ok_clicked(self, event=None):
+        """Handle OK action (Enter key)"""
         password = self.password_var.get()
         
         if len(password) < self.min_length:
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Error", 
                 f"Password must be at least {self.min_length} characters."
             )
@@ -106,7 +102,7 @@ class PasswordDialog(tk.Toplevel):
         if hasattr(self, 'confirm_var'):
             confirm = self.confirm_var.get()
             if password != confirm:
-                tk.messagebox.showerror(
+                messagebox.showerror(
                     "Error", 
                     "Passwords do not match."
                 )
@@ -118,7 +114,8 @@ class PasswordDialog(tk.Toplevel):
             
         self.destroy()
         
-    def cancel_clicked(self):
+    def cancel_clicked(self, event=None):
+        """Handle Cancel action (Escape key)"""
         self.result = None
         self.destroy()
 

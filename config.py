@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.47"
+VERSION = "0.49"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -12,10 +12,10 @@ WARNING_DISPLAY_TIME_MS = 3000  # How long warning shows (3 seconds)
 
 # UI Fonts
 GLOBAL_FONT_FAMILY = "Helvetica"  # Set the global font family
-GLOBAL_FONT_SIZE = 12  # Set the global font size
+GLOBAL_FONT_SIZE = 14  # Set the global font size
 GLOBAL_FONT = (GLOBAL_FONT_FAMILY, GLOBAL_FONT_SIZE)
 NOTES_FONT_FAMILY = "Consolas"  # Set the notes font family
-NOTES_FONT_SIZE = 9  # Set the notes font size
+NOTES_FONT_SIZE = 10  # Set the notes font size
 NOTES_FONT = (NOTES_FONT_FAMILY, NOTES_FONT_SIZE)
 
 # DOCX Exports
@@ -44,6 +44,9 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.49 - STABLE minor ui issues related to scaling fonts and password dialogue
+removed ok/cancel and confirmed enter/escape for passwords/changing passwords
+.48 - STABLE added default file names for all exports
 .47 - STABLE found/fixed export bug for json, and keybinding bug for headers 1//4
 rearranged Readme in DB
 added notes on colors, reorganized colors of buttons

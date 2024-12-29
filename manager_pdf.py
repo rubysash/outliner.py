@@ -106,7 +106,7 @@ def format_question_content(question, story, question_style, code_style):
         code_text = '<br/>'.join(formatted_code)
         story.append(Paragraph(code_text, code_style))
 
-def export_to_pdf(db_handler, root_id=None):
+def export_to_pdf(db_handler, root_id=None, file_path=None):
     """Creates the PDF file based on specs defined."""
     try:
         if root_id is None:
@@ -120,13 +120,14 @@ def export_to_pdf(db_handler, root_id=None):
 
         sections = load_sections_for_export(db_handler, root_id)
         
-        file_path = asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF Documents", "*.pdf")],
-            title="Save PDF As",
-        )
         if not file_path:
-            return
+            file_path = asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF Documents", "*.pdf")],
+                title="Save PDF As",
+            )
+            if not file_path:
+                return
 
         # Create the PDF document
         doc = SimpleDocTemplate(

@@ -1,4 +1,5 @@
 import sys
+import time
 import ttkbootstrap as ttk
 from ttkbootstrap import Style
 from tkinter import messagebox, simpledialog
@@ -266,13 +267,13 @@ class OutLineEditorApp:
                 password = get_password(
                     self.root,
                     "Enter Password",
-                    "Enter the password for this database:"
+                    "Enter the db Password:"
                 )
                 
                 if password is None:  # User cancelled
                     if messagebox.askyesno(
                         "Load Different Database?",
-                        "Would you like to load a different database?"
+                        "Load a different database?"
                     ):
                         success = self.handle_load_database()
                         if success:
@@ -289,7 +290,7 @@ class OutLineEditorApp:
                 else:
                     messagebox.showerror(
                         "Invalid Password", 
-                        "The password is incorrect. Please try again."
+                        "Password is incorrect. Try again."
                     )
         else:
             # No password set; create a new one
@@ -305,7 +306,7 @@ class OutLineEditorApp:
                 if result is None:  # User cancelled
                     if messagebox.askyesno(
                         "Load Existing Database?", 
-                        "Would you like to load an existing database instead?"
+                        "Load an existing database?"
                     ):
                         success = self.handle_load_database()
                         if success:
@@ -342,7 +343,7 @@ class OutLineEditorApp:
         result = get_password(
             self.root,
             "Change Database Password",
-            f"Enter new password (min {PASSWORD_MIN_LENGTH} characters):",
+            f"New password (min {PASSWORD_MIN_LENGTH} characters):",
             confirm=True,
             min_length=PASSWORD_MIN_LENGTH
         )
@@ -1984,251 +1985,7 @@ class OutLineEditorApp:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
 
-    def handle_export_db(self):
-        """Export selected section and its children to a new database."""
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showerror("Error", "No section selected.")
-            return
 
-        node_id = self.get_item_id(selected[0])
-        decrypted_title = self.tree.item(selected[0])['text']
-        if '. ' in decrypted_title:
-            decrypted_title = decrypted_title.split('. ', 1)[1]
-
-        try:
-            # Get new database path
-            file_path = asksaveasfilename(
-                defaultextension=".db",
-                filetypes=[("SQLite Database", "*.db")],
-                title="Save DB Export"
-            )
-            if not file_path:
-                return
-
-            # Get password for new database
-            result = get_password(
-                self.root,
-                "Set Export Password",
-                f"Enter a password for the exported database (min. {PASSWORD_MIN_LENGTH} characters):",
-                confirm=True,
-                min_length=PASSWORD_MIN_LENGTH
-            )
-            
-            if result is None:
-                return  # User cancelled
-                
-            password, _ = result  # Unpack the tuple returned by get_password
-
-            # Create new database and encryption manager
-            new_encryption_manager = EncryptionManager(password)
-            new_db = DatabaseHandler(file_path, new_encryption_manager)
-            new_db.setup_database()
-            new_db.set_password(password)
-
-            # Export the data
-            def export_section_recursive(section_id, new_parent_id=None):
-                # Get section data
-                self.db.cursor.execute(
-                    "SELECT title, type, questions, placement FROM sections WHERE id = ?",
-                    (section_id,)
-                )
-                row = self.db.cursor.fetchone()
-                if not row:
-                    return
-
-                # Decrypt data from source database
-                title = self.db.decrypt_safely(row[0])
-                questions = self.db.decrypt_safely(row[2])
-                
-                # Add section to new database
-                new_section_id = new_db.add_section(
-                    title,
-                    row[1],  # type
-                    new_parent_id,
-                    row[3]   # placement
-                )
-
-                # Update questions
-                new_db.update_section(new_section_id, title, questions)
-
-                # Process children
-                self.db.cursor.execute(
-                    "SELECT id FROM sections WHERE parent_id = ? ORDER BY placement",
-                    (section_id,)
-                )
-                for child_row in self.db.cursor.fetchall():
-                    export_section_recursive(child_row[0], new_section_id)
-
-            # Start the export process
-            export_section_recursive(node_id)
-            new_db.conn.commit()
-            new_db.close()
-
-            messagebox.showinfo(
-                "Success", 
-                f"Exported section '{decrypted_title}' to {file_path}"
-            )
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to export database: {str(e)}")
-
-    # JSON
-    
-    def handle_export_json(self):
-        export_all = self.export_all.get()
-        node_id = None
-
-        if not export_all:
-            selected = self.tree.selection()
-            if selected:
-                node_id = self.get_item_id(selected[0])
-                decrypted_title = self.tree.item(selected[0])['text']
-                if '. ' in decrypted_title:
-                    decrypted_title = decrypted_title.split('. ', 1)[1]
-                
-                confirm = messagebox.askyesno(
-                    "Export Selection",
-                    f"Export '{decrypted_title}' and its subsections to JSON?",
-                    icon='info'
-                )
-                if not confirm:
-                    return
-            else:
-                export_all = True
-
-        if export_all:
-            confirm = messagebox.askyesno(
-                "Full Export Warning",
-                "This will export all titles which may take time for decryption. Continue?",
-                icon='warning'
-            )
-            if not confirm:
-                return
-
-        try:
-            data = self.build_hierarchy(node_id)
-            file_path = asksaveasfilename(
-                defaultextension=".json",
-                filetypes=[("JSON Files", "*.json")],
-                title="Save JSON Export"
-            )
-            if not file_path:
-                return
-
-            with open(file_path, "w", encoding="utf-8") as json_file:
-                json.dump(data, json_file, indent=4, ensure_ascii=False)
-
-            messagebox.showinfo("Success", f"Exported titles to {file_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to export: {str(e)}")
-
-    def build_hierarchy(self, node_id):
-        def get_level_key(level):
-            return "children" if level > 4 else f"h{level}"
-
-        def add_children(parent_id, level):
-            children = self.db.load_children(parent_id)
-            result = []
-            for child_id, encrypted_title, _ in children:
-                title = self.db.decrypt_safely(encrypted_title)
-                child_hierarchy = {"name": title}
-                
-                has_children = self.db.has_children(child_id)
-                next_level_key = get_level_key(level + 1)
-                
-                if has_children:
-                    child_hierarchy[next_level_key] = add_children(child_id, level + 1)
-                else:
-                    child_hierarchy[next_level_key] = []
-                    
-                result.append(child_hierarchy)
-            return result
-
-        root_title = self.db.get_section_title(node_id)
-        hierarchy = {
-            "h1": [
-                {
-                    "name": root_title,
-                    "h2": add_children(node_id, 2)
-                }
-            ]
-        }
-        return hierarchy
-
-    # DOCX
-    
-    def handle_export_docx(self):
-        export_all = self.export_all.get()
-        root_id = None
-        
-        if not export_all:
-            selected = self.tree.selection()
-            if selected:
-                root_id = self.get_item_id(selected[0])
-                level = self.db.get_section_level(root_id)
-                decrypted_title = self.tree.item(selected[0])['text']
-                if '. ' in decrypted_title:
-                    decrypted_title = decrypted_title.split('. ', 1)[1]
-                
-                confirm = messagebox.askyesno(
-                    "Export Selection",
-                    f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
-                    icon='info'
-                )
-                if not confirm:
-                    return
-            else:
-                export_all = True  # Default to all if nothing selected
-        
-        if export_all:
-            confirm = messagebox.askyesno(
-                "Full Export Warning",
-                "This will export the entire document which may take some time for decryption. Continue?",
-                icon='warning'
-            )
-            if not confirm:
-                return
-                
-        export_to_docx(self.db, root_id)
-
-
-    # PDF
-    
-    def handle_export_pdf(self):
-        export_all = self.export_all.get()
-        root_id = None
-        
-        if not export_all:
-            selected = self.tree.selection()
-            if selected:
-                root_id = self.get_item_id(selected[0])
-                level = self.db.get_section_level(root_id)
-                decrypted_title = self.tree.item(selected[0])['text']
-                if '. ' in decrypted_title:
-                    decrypted_title = decrypted_title.split('. ', 1)[1]
-                
-                confirm = messagebox.askyesno(
-                    "Export Selection",
-                    f"Export '{decrypted_title}' (Level {level}) and all its subsections?",
-                    icon='info'
-                )
-                if not confirm:
-                    return
-            else:
-                export_all = True  # Default to all if nothing selected
-        
-        if export_all:
-            confirm = messagebox.askyesno(
-                "Full Export Warning",
-                "This will export the entire document which may take some time for decryption. Continue?",
-                icon='warning'
-            )
-            if not confirm:
-                return
-                
-        export_to_pdf(self.db, root_id)
-    
     # SEARCH
 
     @timer
@@ -2277,6 +2034,260 @@ class OutLineEditorApp:
         except Exception as e:
             print(f"Error in execute_search: {e}")
             messagebox.showerror("Search Error", f"An error occurred while searching: {str(e)}")
+
+
+    # EXPORTS
+    
+    def get_standardized_filename(self, selected_node, extension):
+        """
+        Generate a standardized filename for exports based on section title and timestamp.
+        
+        Args:
+            selected_node: The selected tree node
+            extension: File extension (e.g., 'pdf', 'docx', 'json', 'db')
+            
+        Returns:
+            str: Formatted filename with timestamp
+        """
+        try:
+            # Get the section title from the tree
+            title = self.tree.item(selected_node)['text']
+            
+            # Remove numbering prefix if present (e.g., "1.2. Title" -> "Title")
+            if '. ' in title:
+                title = title.split('. ', 1)[1]
+                
+            # Replace invalid filename characters with hyphens
+            title = "".join(c if c.isalnum() or c in (' ', '-', '_') else '-' for c in title)
+            title = title.strip().replace(' ', '-')
+            
+            # Generate timestamp
+            timestamp = time.strftime("%Y.%m.%d_%H%M")
+            
+            # Combine components
+            return f"{title}.{timestamp}.{extension}"
+            
+        except Exception as e:
+            print(f"Error generating filename: {e}")
+            # Fallback to generic name if there's an error
+            return f"export.{time.strftime('%Y.%m.%d_%H%M')}.{extension}"
+
+    def handle_export_selection(self, export_type, export_func):
+        """
+        Generic export handler for all export types.
+        
+        Args:
+            export_type: Dict containing export configuration
+            export_func: Function to call for actual export
+        """
+        export_all = self.export_all.get()
+        root_id = None
+        
+        # Generate timestamp
+        timestamp = time.strftime("%Y.%m.%d_%H%M")
+        default_filename = f"complete-outline.{timestamp}.{export_type['extension']}"
+
+        if not export_all:
+            selected = self.tree.selection()
+            if not selected:
+                messagebox.showerror("Error", "No section selected.")
+                return False
+
+            root_id = self.get_item_id(selected[0])
+            level = self.db.get_section_level(root_id)
+            default_filename = self.get_standardized_filename(selected[0], export_type['extension'])
+            
+            confirm = messagebox.askyesno(
+                "Export Selection",
+                f"Export '{self.tree.item(selected[0])['text']}' (Level {level}) and its subsections?",
+                icon='info'
+            )
+            if not confirm:
+                return False
+        else:
+            confirm = messagebox.askyesno(
+                "Full Export Warning",
+                "This will export the entire document which may take time for decryption. Continue?",
+                icon='warning'
+            )
+            if not confirm:
+                return False
+
+        try:
+            file_path = asksaveasfilename(
+                defaultextension=f".{export_type['extension']}",
+                filetypes=[(export_type['description'], f"*.{export_type['extension']}")],
+                title=f"Save {export_type['name']} Export",
+                initialfile=default_filename
+            )
+            
+            if not file_path:
+                return False
+                
+            # Call the specific export function
+            export_func(self.db, root_id, file_path)
+            return True
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export: {str(e)}")
+            return False
+
+    def build_hierarchy(self, node_id):
+        def get_level_key(level):
+            return "children" if level > 4 else f"h{level}"
+
+        def add_children(parent_id, level):
+            children = self.db.load_children(parent_id)
+            result = []
+            for child_id, encrypted_title, _ in children:
+                title = self.db.decrypt_safely(encrypted_title)
+                child_hierarchy = {"name": title}
+                
+                has_children = self.db.has_children(child_id)
+                next_level_key = get_level_key(level + 1)
+                
+                if has_children:
+                    child_hierarchy[next_level_key] = add_children(child_id, level + 1)
+                else:
+                    child_hierarchy[next_level_key] = []
+                    
+                result.append(child_hierarchy)
+            return result
+
+        root_title = self.db.get_section_title(node_id)
+        hierarchy = {
+            "h1": [
+                {
+                    "name": root_title,
+                    "h2": add_children(node_id, 2)
+                }
+            ]
+        }
+        return hierarchy
+
+    def handle_export_db(self):
+        """Export selected section and its children to a new database."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "No section selected.")
+            return
+
+        node_id = self.get_item_id(selected[0])
+        default_filename = self.get_standardized_filename(selected[0], "db")
+        
+        try:
+            file_path = asksaveasfilename(
+                defaultextension=".db",
+                filetypes=[("SQLite Database", "*.db")],
+                title="Save DB Export",
+                initialfile=default_filename
+            )
+            if not file_path:
+                return
+
+            # Get password for new database
+            result = get_password(
+                self.root,
+                "Set Export Password",
+                f"Enter a password for the exported database (min. {PASSWORD_MIN_LENGTH} characters):",
+                confirm=True,
+                min_length=PASSWORD_MIN_LENGTH
+            )
+            
+            if result is None:
+                return
+                
+            password, _ = result
+
+            # Create new database and encryption manager
+            new_encryption_manager = EncryptionManager(password)
+            new_db = DatabaseHandler(file_path, new_encryption_manager)
+            new_db.setup_database()
+            new_db.set_password(password)
+
+            def export_section_recursive(section_id, new_parent_id=None):
+                self.db.cursor.execute(
+                    "SELECT title, type, questions, placement FROM sections WHERE id = ?",
+                    (section_id,)
+                )
+                row = self.db.cursor.fetchone()
+                if not row:
+                    return
+
+                title = self.db.decrypt_safely(row[0])
+                questions = self.db.decrypt_safely(row[2])
+                
+                new_section_id = new_db.add_section(
+                    title,
+                    row[1],  # type
+                    new_parent_id,
+                    row[3]   # placement
+                )
+
+                new_db.update_section(new_section_id, title, questions)
+
+                self.db.cursor.execute(
+                    "SELECT id FROM sections WHERE parent_id = ? ORDER BY placement",
+                    (section_id,)
+                )
+                for child_row in self.db.cursor.fetchall():
+                    export_section_recursive(child_row[0], new_section_id)
+
+            export_section_recursive(node_id)
+            new_db.conn.commit()
+            new_db.close()
+
+            messagebox.showinfo(
+                "Success", 
+                f"Exported section to {file_path}"
+            )
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export database: {str(e)}")
+
+    def handle_export_json(self):
+        """Handle JSON export with standardized filename."""
+        export_type = {
+            'name': 'JSON',
+            'extension': 'json',
+            'description': 'JSON Files'
+        }
+        
+        def export_json(db, root_id, file_path):
+            data = self.build_hierarchy(root_id)
+            with open(file_path, "w", encoding="utf-8") as json_file:
+                json.dump(data, json_file, indent=4, ensure_ascii=False)
+        
+        self.handle_export_selection(export_type, export_json)
+
+    def handle_export_pdf(self):
+        """Handle PDF export with standardized filename."""
+        export_type = {
+            'name': 'PDF',
+            'extension': 'pdf',
+            'description': 'PDF Documents'
+        }
+        
+        def export_pdf(db, root_id, file_path):
+            from manager_pdf import export_to_pdf
+            export_to_pdf(db, root_id, file_path)
+        
+        self.handle_export_selection(export_type, export_pdf)
+
+    def handle_export_docx(self):
+        """Handle DOCX export with standardized filename."""
+        export_type = {
+            'name': 'Word',
+            'extension': 'docx',
+            'description': 'Word Documents'
+        }
+        
+        def export_docx(db, root_id, file_path):
+            from manager_docx import export_to_docx
+            export_to_docx(db, root_id, file_path)
+        
+        self.handle_export_selection(export_type, export_docx)    
+
 
     # UTILITY
 

@@ -13,8 +13,8 @@ def show_timer_warning():
     global _warning_shown
     if not _warning_shown and TIMER_ENABLED:
         print(f"{Fore.LIGHTBLACK_EX}Performance monitoring is enabled. Operations taking between "
-              f"{MIN_TIME_IN_MS_THRESHOLD}ms and {MAX_TIME_IN_MS_THRESHOLD}ms will be logged. "
-              f"This is not an error. Configure thresholds in config.py{Style.RESET_ALL}")
+              f"{MIN_TIME_IN_MS_THRESHOLD}ms and {MAX_TIME_IN_MS_THRESHOLD}ms will be logged. ")
+        print(f"This is not an error. Configure thresholds in config.py{Style.RESET_ALL}")
         _warning_shown = True
 
 def timer(func):

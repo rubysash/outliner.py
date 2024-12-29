@@ -41,7 +41,7 @@ def load_sections_for_export(db_handler: DatabaseHandler, root_id=None):
     
     return decrypted_rows
 
-def export_to_docx(db_handler: DatabaseHandler, root_id=None):
+def export_to_docx(db_handler: DatabaseHandler, root_id=None, file_path=None):
     """Creates the docx file based on specs defined."""
     try:
         if root_id is None:
@@ -187,13 +187,14 @@ def export_to_docx(db_handler: DatabaseHandler, root_id=None):
         # Then process all children
         add_to_doc(root_id)
 
-        file_path = asksaveasfilename(
-            defaultextension=".docx",
-            filetypes=[("Word Documents", "*.docx")],
-            title="Save Document As",
-        )
         if not file_path:
-            return
+            file_path = asksaveasfilename(
+                defaultextension=".docx",
+                filetypes=[("Word Documents", "*.docx")],
+                title="Save Document As",
+            )
+            if not file_path:
+                return
 
         doc.save(file_path)
         messagebox.showinfo(
