@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.45"
+VERSION = "0.47"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -44,6 +44,12 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.47 - STABLE found/fixed export bug for json, and keybinding bug for headers 1//4
+rearranged Readme in DB
+added notes on colors, reorganized colors of buttons
+changed button order and method names for consistentcy
+.46 - DEV Export section as db, pdf, docx, json
+Wrote unittest, 1st attempt.
 .45 - STABLE Expand/Collapse all children context
 refactored recursive tree refresh
 .44 - STABLE Clone Everything option

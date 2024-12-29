@@ -14,7 +14,7 @@ from manager_docx import export_to_docx
 from manager_json import load_from_json_file
 from manager_encryption import EncryptionManager
 from manager_pdf import export_to_pdf
-from manager_passwords import get_password
+from manager_passwords import PasswordDialog, get_password
 
 from database import DatabaseHandler
 from config import (
@@ -377,6 +377,14 @@ class OutLineEditorApp:
         clone_menu.add_command(label="Clone Everything", command=lambda: self.clone_section(clone_content=True))
         self.tree_menu.add_cascade(label="Clone", menu=clone_menu)
 
+        # Add export submenu
+        export_menu = tk.Menu(self.tree_menu, tearoff=0)
+        export_menu.add_command(label="Export as DB", command=self.handle_export_db)
+        export_menu.add_command(label="Export as JSON", command=lambda: self.handle_export_json())
+        export_menu.add_command(label="Export as PDF", command=lambda: self.handle_export_pdf())
+        export_menu.add_command(label="Export as DOCX", command=lambda: self.handle_export_docx())
+        self.tree_menu.add_cascade(label="Export", menu=export_menu)
+    
         # Add expand/collapse menu
         self.tree_menu.add_separator()
         expand_menu = tk.Menu(self.tree_menu, tearoff=0)
@@ -828,10 +836,11 @@ class OutLineEditorApp:
         self.database_buttons.grid(row=1, column=0, sticky="ew", padx=frame_padx, pady=frame_pady)
 
         for text, command, style in [
-            ("Load JSON", lambda: load_from_json_file(self.db.cursor, self.db, self.refresh_tree), "info"),
-            ("Load DB", self.handle_load_database, "info"),
-            ("New DB", self.reset_database, "warning"),
-            ("Change Password", self.change_database_password, "secondary"),
+            ("Change Password", self.change_database_password, "primary"),
+            ("Load DB", self.handle_load_database, "primary"),
+            ("Create DB", self.reset_database, "primary"),
+            ("Import JSON", lambda: load_from_json_file(self.db.cursor, self.db, self.refresh_tree), "warning"),
+            
         ]:
             ttk.Button(self.database_buttons, text=text, command=command, bootstyle=style).pack(
                 side=tk.LEFT, padx=button_padx, pady=button_pady
@@ -864,22 +873,22 @@ class OutLineEditorApp:
 
         ttk.Button(
             self.exports_buttons, 
-            text="Make DOCX", 
+            text="DOCX", 
             command=self.handle_export_docx,
             bootstyle="success"
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
         ttk.Button(
             self.exports_buttons, 
-            text="Make PDF", 
+            text="PDF", 
             command=self.handle_export_pdf,
             bootstyle="success"
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
         ttk.Button(
             self.exports_buttons, 
-            text="Titles to JSON", 
-            command=self.export_titles_to_json,
+            text="JSON", 
+            command=self.handle_export_json,
             bootstyle="info"
         ).pack(side=tk.LEFT, padx=button_padx, pady=button_padx)
 
@@ -1870,17 +1879,63 @@ class OutLineEditorApp:
                 f"An unexpected error occurred while resetting the database: {e}"
             )
 
+
+    @timer
     def add_h1(self):
+        """Add a header (h1) level section."""
         self.add_section(section_type="header", title_prefix="Header")
 
+    @timer
     def add_h2(self):
-        self.add_section(section_type="category", parent_type="header", title_prefix="Category")
+        """Add a category (h2) level section under a selected header."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a header to add a category under.")
+            return
+            
+        parent_id = self.get_item_id(selected[0])
+        parent_type = self.get_item_type(selected[0])
+        
+        if parent_type != "header":
+            messagebox.showerror("Error", "Categories (h2) can only be added under headers (h1).")
+            return
+            
+        self.add_section(section_type="category", parent_id=parent_id, title_prefix="Category")
 
+    @timer
     def add_h3(self):
-        self.add_section(section_type="subcategory", parent_type="category", title_prefix="Subcategory")
+        """Add a subcategory (h3) level section under a selected category."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a category to add a subcategory under.")
+            return
+            
+        parent_id = self.get_item_id(selected[0])
+        parent_type = self.get_item_type(selected[0])
+        
+        if parent_type != "category":
+            messagebox.showerror("Error", "Subcategories (h3) can only be added under categories (h2).")
+            return
+            
+        self.add_section(section_type="subcategory", parent_id=parent_id, title_prefix="Subcategory")
 
+    @timer
     def add_h4(self):
-        self.add_section(section_type="subheader", parent_type="subcategory", title_prefix="Sub Header")
+        """Add a subheader (h4) level section under a selected subcategory."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a subcategory to add a subheader under.")
+            return
+            
+        parent_id = self.get_item_id(selected[0])
+        parent_type = self.get_item_type(selected[0])
+        
+        if parent_type != "subcategory":
+            messagebox.showerror("Error", "Subheaders (h4) can only be added under subcategories (h3).")
+            return
+            
+        self.add_section(section_type="subheader", parent_id=parent_id, title_prefix="Sub Header")
+
 
     def swap_placement(self, item_id1, item_id2):
         """Swap the placement of two items using the DatabaseHandler."""
@@ -1929,9 +1984,98 @@ class OutLineEditorApp:
             print(f"Error in initialize_placement: {e}")
             self.conn.rollback()
 
+    def handle_export_db(self):
+        """Export selected section and its children to a new database."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "No section selected.")
+            return
+
+        node_id = self.get_item_id(selected[0])
+        decrypted_title = self.tree.item(selected[0])['text']
+        if '. ' in decrypted_title:
+            decrypted_title = decrypted_title.split('. ', 1)[1]
+
+        try:
+            # Get new database path
+            file_path = asksaveasfilename(
+                defaultextension=".db",
+                filetypes=[("SQLite Database", "*.db")],
+                title="Save DB Export"
+            )
+            if not file_path:
+                return
+
+            # Get password for new database
+            result = get_password(
+                self.root,
+                "Set Export Password",
+                f"Enter a password for the exported database (min. {PASSWORD_MIN_LENGTH} characters):",
+                confirm=True,
+                min_length=PASSWORD_MIN_LENGTH
+            )
+            
+            if result is None:
+                return  # User cancelled
+                
+            password, _ = result  # Unpack the tuple returned by get_password
+
+            # Create new database and encryption manager
+            new_encryption_manager = EncryptionManager(password)
+            new_db = DatabaseHandler(file_path, new_encryption_manager)
+            new_db.setup_database()
+            new_db.set_password(password)
+
+            # Export the data
+            def export_section_recursive(section_id, new_parent_id=None):
+                # Get section data
+                self.db.cursor.execute(
+                    "SELECT title, type, questions, placement FROM sections WHERE id = ?",
+                    (section_id,)
+                )
+                row = self.db.cursor.fetchone()
+                if not row:
+                    return
+
+                # Decrypt data from source database
+                title = self.db.decrypt_safely(row[0])
+                questions = self.db.decrypt_safely(row[2])
+                
+                # Add section to new database
+                new_section_id = new_db.add_section(
+                    title,
+                    row[1],  # type
+                    new_parent_id,
+                    row[3]   # placement
+                )
+
+                # Update questions
+                new_db.update_section(new_section_id, title, questions)
+
+                # Process children
+                self.db.cursor.execute(
+                    "SELECT id FROM sections WHERE parent_id = ? ORDER BY placement",
+                    (section_id,)
+                )
+                for child_row in self.db.cursor.fetchall():
+                    export_section_recursive(child_row[0], new_section_id)
+
+            # Start the export process
+            export_section_recursive(node_id)
+            new_db.conn.commit()
+            new_db.close()
+
+            messagebox.showinfo(
+                "Success", 
+                f"Exported section '{decrypted_title}' to {file_path}"
+            )
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export database: {str(e)}")
+
     # JSON
     
-    def export_titles_to_json(self):
+    def handle_export_json(self):
         export_all = self.export_all.get()
         node_id = None
 
