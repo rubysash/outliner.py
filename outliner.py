@@ -327,8 +327,14 @@ class OutLineEditorApp:
         """Create and bind the context menu to the TreeView."""
         self.tree_menu = tk.Menu(self.tree, tearoff=0)
 
+        # Add section
         self.tree_menu.add_command(label="Add Section", command=self.add_child_section)
-        self.tree_menu.add_command(label="Clone Section", command=self.clone_section)  # Add this line
+        
+        # Add clone submenu
+        clone_menu = tk.Menu(self.tree_menu, tearoff=0)
+        clone_menu.add_command(label="Clone Titles", command=lambda: self.clone_section(clone_content=False))
+        clone_menu.add_command(label="Clone Everything", command=lambda: self.clone_section(clone_content=True))
+        self.tree_menu.add_cascade(label="Clone", menu=clone_menu)
 
         # Add multiple separators and a disabled spacer for visual safety gap
         self.tree_menu.add_separator()
@@ -398,8 +404,12 @@ class OutLineEditorApp:
         """Handle deletion from context menu using existing deletion logic."""
         self.delete_selected()
    
-    def clone_section(self):
-        """Clone the selected section and all its children."""
+    def clone_section(self, clone_content=False):
+        """Clone the selected section and all its children.
+        
+        Args:
+            clone_content (bool): If True, clone questions/notes content. If False, clone only titles.
+        """
         selected = self.tree.selection()
         if not selected:
             messagebox.showerror("Error", "No section selected for cloning.")
@@ -412,10 +422,10 @@ class OutLineEditorApp:
         try:
             # Get the source section's type and title
             self.db.cursor.execute(
-                "SELECT type, title FROM sections WHERE id = ?", 
+                "SELECT type, title, questions FROM sections WHERE id = ?", 
                 (source_id,)
             )
-            section_type, encrypted_title = self.db.cursor.fetchone()
+            section_type, encrypted_title, encrypted_questions = self.db.cursor.fetchone()
             original_title = self.db.decrypt_safely(encrypted_title)
             
             # Create the cloned parent section
@@ -440,6 +450,13 @@ class OutLineEditorApp:
                 next_placement
             )
 
+            # If cloning content, update the questions for the new section
+            if clone_content and encrypted_questions:
+                self.db.cursor.execute(
+                    "UPDATE sections SET questions = ? WHERE id = ?",
+                    (encrypted_questions, new_parent_id)
+                )
+
             # Recursively clone children
             def clone_children(source_parent_id, new_parent_id):
                 """
@@ -448,7 +465,7 @@ class OutLineEditorApp:
                 """
                 self.db.cursor.execute(
                     """
-                    SELECT id, title, type, placement 
+                    SELECT id, title, type, placement, questions 
                     FROM sections 
                     WHERE parent_id = ? 
                     ORDER BY placement
@@ -457,7 +474,7 @@ class OutLineEditorApp:
                 )
                 children = self.db.cursor.fetchall()
                 
-                for idx, (child_id, encrypted_title, child_type, _) in enumerate(children, 1):
+                for idx, (child_id, encrypted_title, child_type, _, encrypted_questions) in enumerate(children, 1):
                     # Decrypt the child's title
                     child_title = self.db.decrypt_safely(encrypted_title)
                     
@@ -469,19 +486,30 @@ class OutLineEditorApp:
                         idx  # Use enumerated index for placement
                     )
                     
+                    # If cloning content, update the questions for the new child
+                    if clone_content and encrypted_questions:
+                        self.db.cursor.execute(
+                            "UPDATE sections SET questions = ? WHERE id = ?",
+                            (encrypted_questions, new_child_id)
+                        )
+                    
                     # Recursively clone this child's children
                     clone_children(child_id, new_child_id)
 
             # Start the recursive cloning
             clone_children(source_id, new_parent_id)
             
+            # Commit all changes
+            self.db.conn.commit()
+            
             # Refresh the tree and select the new cloned section
             self.refresh_tree()
             self.select_item(f"I{new_parent_id}")
             
+            clone_type = "content and titles" if clone_content else "titles"
             messagebox.showinfo(
                 "Success", 
-                f"Successfully cloned section '{original_title}'"
+                f"Successfully cloned section '{original_title}' with {clone_type}"
             )
             
         except Exception as e:

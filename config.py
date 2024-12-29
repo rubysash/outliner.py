@@ -2,7 +2,7 @@
 THEME = (
     "darkly"  # cosmo, litera, minty, pulse, sandstone, solar, superhero, flatly, darkly
 )
-VERSION = "0.43"
+VERSION = "0.44"
 DB_NAME = "outline.db"  # default db it will look for or create
 PASSWORD_MIN_LENGTH = 3
 
@@ -40,6 +40,7 @@ COLOR_THRESHOLDS = {
 
 # Version Info
 '''
+.44 - STABLE Clone Everything option
 .43 - STABLE db_dump.py troubleshooting tool was not dumping all tables, corrected
 Clone section (titles only)
 .42 - STABLE Right click Notes copy, paste, select all
