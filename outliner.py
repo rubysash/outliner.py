@@ -321,12 +321,21 @@ class OutLineEditorApp:
             self.handle_authentication_failure(f"Failed to change password: {e}")
 
 
-    # RIGHT CLICK CONTEXT
+    # RIGHT CLICK CONTEXT TREE
     
     def create_context_menu(self):
         """Create and bind the context menu to the TreeView."""
         self.tree_menu = tk.Menu(self.tree, tearoff=0)
+
         self.tree_menu.add_command(label="Add Section", command=self.add_child_section)
+
+        # Add multiple separators and a disabled spacer for visual safety gap
+        self.tree_menu.add_separator()
+        self.tree_menu.add_command(label=" ", state="disabled")  # Empty disabled item for spacing
+        self.tree_menu.add_separator()
+
+        # Add the delete option
+        self.tree_menu.add_command(label="Delete Section", command=self.context_delete_section)
 
         # Bind right-click to show the context menu
         self.tree.bind("<Button-3>", self.show_context_menu)
@@ -384,7 +393,74 @@ class OutLineEditorApp:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to add the section: {e}")
 
+    def context_delete_section(self):
+        """Handle deletion from context menu using existing deletion logic."""
+        self.delete_selected()
    
+
+    # RIGHT CLICK CONTEXT NOTES
+    
+    def create_notes_context_menu(self):
+        """Create and bind the context menu to the notes/questions text area."""
+        self.notes_menu = tk.Menu(self.questions_text, tearoff=0)
+        self.notes_menu.add_command(label="Select All", command=self.notes_select_all)
+        self.notes_menu.add_separator()
+        self.notes_menu.add_command(label="Copy", command=self.notes_copy)
+        self.notes_menu.add_command(label="Paste", command=self.notes_paste)
+        
+        # Bind right-click to show the context menu
+        self.questions_text.bind("<Button-3>", self.show_notes_context_menu)
+
+    def show_notes_context_menu(self, event):
+        """Display the context menu for the notes area at the pointer location."""
+        try:
+            # Enable/disable copy based on whether there's a selection
+            if self.questions_text.tag_ranges("sel"):
+                self.notes_menu.entryconfig("Copy", state="normal")
+            else:
+                self.notes_menu.entryconfig("Copy", state="disabled")
+            
+            self.notes_menu.post(event.x_root, event.y_root)
+        except Exception as e:
+            print(f"Error showing notes context menu: {e}")
+
+    def notes_select_all(self):
+        """Select all text in the notes area."""
+        try:
+            self.questions_text.tag_add("sel", "1.0", "end-1c")
+            self.questions_text.mark_set("insert", "1.0")
+            self.questions_text.see("insert")
+        except Exception as e:
+            print(f"Error in select all: {e}")
+
+    def notes_copy(self):
+        """Copy selected text to clipboard."""
+        try:
+            if self.questions_text.tag_ranges("sel"):
+                selected_text = self.questions_text.get("sel.first", "sel.last")
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+        except Exception as e:
+            print(f"Error in copy: {e}")
+
+    def notes_paste(self):
+        """Paste clipboard content into notes area, replacing selection if exists."""
+        try:
+            # Get clipboard content
+            clipboard_text = self.root.clipboard_get()
+            
+            # If there's a selection, delete it first
+            if self.questions_text.tag_ranges("sel"):
+                self.questions_text.delete("sel.first", "sel.last")
+            
+            # Insert clipboard content at current cursor position
+            self.questions_text.insert("insert", clipboard_text)
+        except tk.TclError:  # Empty clipboard
+            pass
+        except Exception as e:
+            print(f"Error in paste: {e}")
+
+
     # TABS
 
     def create_editor_tab(self, label_padx, label_pady, entry_pady, section_pady, button_padx, button_pady):
@@ -452,6 +528,9 @@ class OutLineEditorApp:
         )
         self.questions_text = tk.Text(self.editor_frame, height=15, font=NOTES_FONT)
         self.questions_text.grid(row=3, column=0, sticky="nswe", pady=section_pady)
+        
+        # Create and bind the notes context menu
+        self.create_notes_context_menu()
 
         # Buttons Row (Bottom)
         self.editor_buttons = ttk.Frame(self.editor_tab)
