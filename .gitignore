@@ -19,6 +19,9 @@ dbs/
 *.docx
 *.pdf
 
+# Give the samples
+!sample*.json
+
 # Environment variables
 .env
 

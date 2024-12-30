@@ -1,0 +1,154 @@
+{
+    "h1": [
+        {
+            "name": "Sell 629",
+            "h2": [
+                {
+                    "name": "List on MLS",
+                    "h3": [
+                        { "name": "Provide Photos" },
+                        { "name": "Fill out Listing Paperwork" }
+                    ]
+                },
+                {
+                    "name": "Understand taxes"
+                },
+                {
+                    "name": "Minor Repairs"
+                }
+            ]
+        },
+        {
+            "name": "Prepare 2042 for Sale",
+            "h2": [
+                {
+                    "name": "Jessica Housing Figured Out"
+                },
+                {
+                    "name": "Repairs to Code"
+                },
+                {
+                    "name": "Declutter"
+                },
+                {
+                    "name": "General Trash Disposal"
+                },
+                {
+                    "name": "Decide on Next Home",
+                    "h3": [
+                        { "name": "Property Tax Considerations" },
+                        { "name": "House Requirements" },
+                        { "name": "Location" }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Home IT",
+            "h2": [
+                {
+                    "name": "Inventory"
+                },
+                {
+                    "name": "SIEM & Logging"
+                },
+                {
+                    "name": "Update Schedule"
+                },
+                {
+                    "name": "Secure Outbound"
+                },
+                {
+                    "name": "Encryption"
+                },
+                {
+                    "name": "Backups"
+                }
+            ]
+        },
+        {
+            "name": "Crypto",
+            "h2": [
+                {
+                    "name": "Help Gluba Consolidate Wallet"
+                },
+                {
+                    "name": "Consolidate My Crypto"
+                },
+                {
+                    "name": "Get More Crypto"
+                }
+            ]
+        },
+        {
+            "name": "Web Marketing Business",
+            "h2": [
+                {
+                    "name": "Diess Training"
+                },
+                {
+                    "name": "Company Face Website"
+                },
+                {
+                    "name": "Main Offer"
+                },
+                {
+                    "name": "Lead Magnet"
+                },
+                {
+                    "name": "Follow Up"
+                }
+            ]
+        },
+        {
+            "name": "C2C Income",
+            "h2": [
+                {
+                    "name": "Excel at WTH",
+                    "h3": [
+                        { "name": "Understand Networks" },
+                        { "name": "Inventory Access" },
+                        { "name": "Scripts & Software" }
+                    ]
+                },
+                {
+                    "name": "Excel at Optiv",
+                    "h3": [
+                        { "name": "Prepare CIS Templates" },
+                        { "name": "Prepare Accounts" },
+                        {
+                            "name": "Laptop",
+                            "h3": [
+                                { "name": "Remove Pi" },
+                                { "name": "Prepare Space" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "General Learning",
+            "h2": [
+                {
+                    "name": "AI Skillup",
+                    "h3": [
+                        { "name": "Local LLama" },
+                        { "name": "Understand Crypto transactions" }
+                    ]
+                },
+                {
+                    "name": "API & Functions",
+                    "h3": [
+                        { "name": "Cognito" },
+                        { "name": "API Gateway" },
+                        { "name": "Function Use" }
+                    ]
+                },
+                {
+                    "name": "ASL"
+                }
+            ]
+        }
+    ]
+}

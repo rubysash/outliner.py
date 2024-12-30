@@ -1,0 +1,125 @@
+{
+    "h1": [
+        {
+            "name": "Preparation",
+            "h2": [
+                {
+                    "name": "Review Documentation",
+                    "h3": [
+                        { "name": "Review upgrade documentation and release notes for the target version." },
+                        { "name": "Verify software compatibility with current hardware and OS." },
+                        { "name": "Ensure valid support contracts and access to Check Point downloads." }
+                    ]
+                },
+                {
+                    "name": "Change Window Planning",
+                    "h3": [
+                        { "name": "Define and document the change window, including rollback plan." },
+                        { "name": "Notify stakeholders and obtain necessary approvals." }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Backup",
+            "h2": [
+                {
+                    "name": "Perform Backups",
+                    "h3": [
+                        { "name": "Perform a full backup of the management server." },
+                        { "name": "Perform a full backup of each cluster member." }
+                    ]
+                },
+                {
+                    "name": "Configuration Export",
+                    "h3": [
+                        { "name": "Export and save configuration using Check Point CLI or SmartConsole." },
+                        { "name": "Verify the integrity of backups by attempting a small restore." }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Pre-Upgrade Checks",
+            "h2": [
+                {
+                    "name": "Cluster Health",
+                    "h3": [
+                        { "name": "Ensure sufficient disk space is available on both cluster members." },
+                        { "name": "Check for any pending software updates or hotfixes on current version." },
+                        { "name": "Verify the health of the HA cluster (e.g., `cphaprob stat`)." }
+                    ]
+                },
+                {
+                    "name": "Connectivity and Sync",
+                    "h3": [
+                        { "name": "Test connectivity to all critical interfaces." },
+                        { "name": "Validate synchronization between cluster members." }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Upgrade Preparation",
+            "h2": [
+                {
+                    "name": "File Preparation",
+                    "h3": [
+                        { "name": "Download the target upgrade files and hotfixes." },
+                        { "name": "Upload files to the appropriate directories on each cluster member." }
+                    ]
+                },
+                {
+                    "name": "Pre-Upgrade Verification",
+                    "h3": [
+                        { "name": "Run the pre-upgrade verifier tool to check for issues." },
+                        { "name": "Resolve any pre-upgrade warnings or errors before proceeding." }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Upgrade Execution",
+            "h2": [
+                {
+                    "name": "Cluster Member Upgrade",
+                    "h3": [
+                        { "name": "Fail over to the secondary cluster member." },
+                        { "name": "Upgrade the primary cluster member first." },
+                        { "name": "Verify the upgrade of the primary member is successful." },
+                        { "name": "Fail over to the primary cluster member." },
+                        { "name": "Upgrade the secondary cluster member." }
+                    ]
+                },
+                {
+                    "name": "Validation During Upgrade",
+                    "h3": [
+                        { "name": "Monitor traffic flow during failover and upgrade." },
+                        { "name": "Validate basic connectivity post-upgrade for each member." }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Post-Upgrade Tasks",
+            "h2": [
+                {
+                    "name": "Cluster Validation",
+                    "h3": [
+                        { "name": "Verify HA cluster status (e.g., `cphaprob stat`)." },
+                        { "name": "Validate synchronization between cluster members." },
+                        { "name": "Test failover functionality." }
+                    ]
+                },
+                {
+                    "name": "Final Steps",
+                    "h3": [
+                        { "name": "Confirm that all services are operational." },
+                        { "name": "Document the upgrade process and results." },
+                        { "name": "Notify stakeholders of successful completion." }
+                    ]
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,282 @@
+{
+    "h1": [
+        {
+            "name": "Identify",
+            "h2": [
+                {
+                    "name": "Asset Management",
+                    "h3": [
+                        {
+                            "name": "Asset Inventory"
+                        },
+                        {
+                            "name": "Ownership and Responsibility"
+                        }
+                    ]
+                },
+                {
+                    "name": "Business Environment",
+                    "h3": [
+                        {
+                            "name": "Mission Understanding"
+                        },
+                        {
+                            "name": "Critical Services Identification"
+                        }
+                    ]
+                },
+                {
+                    "name": "Governance",
+                    "h3": [
+                        {
+                            "name": "Policies and Procedures"
+                        },
+                        {
+                            "name": "Roles and Responsibilities"
+                        }
+                    ]
+                },
+                {
+                    "name": "Risk Assessment",
+                    "h3": [
+                        {
+                            "name": "Risk Identification"
+                        },
+                        {
+                            "name": "Risk Prioritization"
+                        }
+                    ]
+                },
+                {
+                    "name": "Risk Management Strategy",
+                    "h3": [
+                        {
+                            "name": "Risk Mitigation Plans"
+                        },
+                        {
+                            "name": "Risk Tolerance Definition"
+                        }
+                    ]
+                },
+                {
+                    "name": "Supply Chain Risk Management",
+                    "h3": [
+                        {
+                            "name": "Supply Chain Risks"
+                        },
+                        {
+                            "name": "Third-party Monitoring"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Protect",
+            "h2": [
+                {
+                    "name": "Identity Management, Authentication, and Access Control",
+                    "h3": [
+                        {
+                            "name": "Authentication Mechanisms"
+                        },
+                        {
+                            "name": "Access Control Policies"
+                        }
+                    ]
+                },
+                {
+                    "name": "Awareness and Training",
+                    "h3": [
+                        {
+                            "name": "Employee Cybersecurity Training"
+                        },
+                        {
+                            "name": "Continuous Awareness Programs"
+                        }
+                    ]
+                },
+                {
+                    "name": "Data Security",
+                    "h3": [
+                        {
+                            "name": "Data Encryption"
+                        },
+                        {
+                            "name": "Data Loss Prevention"
+                        }
+                    ]
+                },
+                {
+                    "name": "Information Protection Processes and Procedures",
+                    "h3": [
+                        {
+                            "name": "Standardized Processes"
+                        },
+                        {
+                            "name": "Process Audits"
+                        }
+                    ]
+                },
+                {
+                    "name": "Maintenance",
+                    "h3": [
+                        {
+                            "name": "System Patching"
+                        },
+                        {
+                            "name": "Preventative Maintenance"
+                        }
+                    ]
+                },
+                {
+                    "name": "Protective Technology",
+                    "h3": [
+                        {
+                            "name": "Technology Monitoring"
+                        },
+                        {
+                            "name": "Incident Prevention Tools"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Detect",
+            "h2": [
+                {
+                    "name": "Anomalies and Events",
+                    "h3": [
+                        {
+                            "name": "Event Correlation"
+                        },
+                        {
+                            "name": "Anomaly Reporting"
+                        }
+                    ]
+                },
+                {
+                    "name": "Security Continuous Monitoring",
+                    "h3": [
+                        {
+                            "name": "System Monitoring"
+                        },
+                        {
+                            "name": "Network Monitoring"
+                        }
+                    ]
+                },
+                {
+                    "name": "Detection Processes",
+                    "h3": [
+                        {
+                            "name": "Detection Strategy"
+                        },
+                        {
+                            "name": "Detection Enhancements"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Respond",
+            "h2": [
+                {
+                    "name": "Response Planning",
+                    "h3": [
+                        {
+                            "name": "Response Plan Development"
+                        },
+                        {
+                            "name": "Plan Updates"
+                        }
+                    ]
+                },
+                {
+                    "name": "Communications",
+                    "h3": [
+                        {
+                            "name": "Incident Communication"
+                        },
+                        {
+                            "name": "Stakeholder Engagement"
+                        }
+                    ]
+                },
+                {
+                    "name": "Analysis",
+                    "h3": [
+                        {
+                            "name": "Incident Analysis"
+                        },
+                        {
+                            "name": "Post-incident Review"
+                        }
+                    ]
+                },
+                {
+                    "name": "Mitigation",
+                    "h3": [
+                        {
+                            "name": "Incident Mitigation Actions"
+                        },
+                        {
+                            "name": "Impact Reduction"
+                        }
+                    ]
+                },
+                {
+                    "name": "Improvements",
+                    "h3": [
+                        {
+                            "name": "Lessons Learned"
+                        },
+                        {
+                            "name": "Process Enhancements"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Recover",
+            "h2": [
+                {
+                    "name": "Recovery Planning",
+                    "h3": [
+                        {
+                            "name": "System Recovery Plans"
+                        },
+                        {
+                            "name": "Plan Testing"
+                        }
+                    ]
+                },
+                {
+                    "name": "Improvements",
+                    "h3": [
+                        {
+                            "name": "Recovery Process Enhancements"
+                        },
+                        {
+                            "name": "Capability Development"
+                        }
+                    ]
+                },
+                {
+                    "name": "Communications",
+                    "h3": [
+                        {
+                            "name": "Recovery Stakeholder Communication"
+                        },
+                        {
+                            "name": "Public Communication"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
