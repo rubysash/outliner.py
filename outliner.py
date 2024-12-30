@@ -16,6 +16,7 @@ from manager_json import load_from_json_file
 from manager_encryption import EncryptionManager
 from manager_pdf import export_to_pdf
 from manager_passwords import PasswordDialog, get_password
+from manager_settings import SettingsTab
 
 from database import DatabaseHandler
 from config import (
@@ -37,7 +38,10 @@ from config import (
     INDENT_SIZE,
     PASSWORD_MIN_LENGTH,
     WARNING_LIMIT_ITEM_COUNT,
-    WARNING_DISPLAY_TIME_MS
+    WARNING_DISPLAY_TIME_MS,
+    TIMER_ENABLED,
+    MIN_TIME_IN_MS_THRESHOLD,
+    MAX_TIME_IN_MS_THRESHOLD
 )
 
 class NotificationWindow(tk.Toplevel):
@@ -83,23 +87,18 @@ class NotificationWindow(tk.Toplevel):
 
 class OutLineEditorApp:
     def __init__(self, root):
-        # Apply ttkbootstrap theme
-        self.style = Style(THEME)
+        # First get theme from database if it exists
+        self.db = DatabaseHandler(DB_NAME)
+        
+        # Load all settings before initializing UI
+        self.load_initial_settings()
+        
+        # Apply theme with loaded settings
+        self.style = Style(self.current_settings.get('THEME', THEME))
         self.root = root
         self.root.title(f"Outline Editor v{VERSION}")
 
-        
-        # tree item tracking for lazy loading work around
-        self._suppress_selection_event = False
-        self._selection_binding = None  # Store the event binding
-        self.last_selected_item_id = None
-        self.previous_item_id = None  # Track the previously selected item
-
-        # Set global font scaling using tkinter.font
-        default_font = tkFont.nametofont("TkDefaultFont")
-        default_font.configure(family=GLOBAL_FONT_FAMILY, size=GLOBAL_FONT_SIZE)
-
-        # Padding constants
+        # Define padding constants
         LABEL_PADX = 5
         LABEL_PADY = (5, 5)
         ENTRY_PADY = (5, 5)
@@ -109,6 +108,28 @@ class OutLineEditorApp:
         FRAME_PADX = 10
         FRAME_PADY = 10
 
+        # custom styles for settings
+        self.style.configure("Invalid.TEntry", fieldbackground="#ffe6e6")
+        self.style.configure("success.TButton", background="green", foreground="white")
+        self.style.configure("secondary.TButton", background="gray", foreground="white")
+        
+        # tree item tracking for lazy loading work around
+        self._suppress_selection_event = False
+        self._selection_binding = None  # Store the event binding
+        self.last_selected_item_id = None
+        self.previous_item_id = None  # Track the previously selected item
+
+        # Set global font scaling using tkinter.font
+        default_font = tkFont.nametofont("TkDefaultFont")
+        default_font.configure(
+            family=self.current_settings.get('GLOBAL_FONT_FAMILY', GLOBAL_FONT_FAMILY),
+            size=self.current_settings.get('GLOBAL_FONT_SIZE', GLOBAL_FONT_SIZE)
+        )
+
+        # Add new attributes for security state
+        self.is_authenticated = False
+        self.password_validated = False
+        
         # Initialize notebook and tabs
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=FRAME_PADX, pady=FRAME_PADY)
@@ -117,10 +138,14 @@ class OutLineEditorApp:
         self.editor_tab = ttk.Frame(self.notebook)
         self.database_tab = ttk.Frame(self.notebook)
         self.exports_tab = ttk.Frame(self.notebook)
-
+        self.settings_tab = ttk.Frame(self.notebook) 
+        self.prompt_tab = ttk.Frame(self.notebook) 
+        
         self.notebook.add(self.editor_tab, text="Editor")
         self.notebook.add(self.database_tab, text="Database")
         self.notebook.add(self.exports_tab, text="Exports")
+        self.notebook.add(self.settings_tab, text="Settings") 
+        self.notebook.add(self.prompt_tab, text="Prompts") 
 
         # Key Bindings
         self.root.bind_all("<Control-D>", lambda event: self.delete_selected())
@@ -147,16 +172,12 @@ class OutLineEditorApp:
         self.create_exports_tab(
             LABEL_PADX, LABEL_PADY, FRAME_PADX, FRAME_PADY, BUTTON_PADX, BUTTON_PADY
         )
+
+        # Initialize settings manager after `questions_text` is created
+        self.settings_manager = SettingsTab(self.settings_tab, self.db, questions_text=self.questions_text)
         
         # context menu
         self.create_context_menu()
-
-        # Add new attributes for security state
-        self.is_authenticated = False
-        self.password_validated = False
-        
-        # Initialize database without Encryption Manager
-        self.db = DatabaseHandler(DB_NAME)
 
         # Handle password initialization
         try:
@@ -186,12 +207,59 @@ class OutLineEditorApp:
         self.update_title()
 
         # Bind notebook tab change to save data and refresh the tree
-        #self.notebook.bind("<<NotebookTabChanged>>", lambda event: (self.save_data(), self.refresh_tree()))
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
-
 
         # Save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def load_initial_settings(self):
+        """Load all settings from database before UI initialization."""
+        self.current_settings = {}
+        try:
+            # Fetch all non-password settings from the database
+            self.db.cursor.execute(
+                "SELECT key, value FROM settings WHERE key != 'password'"
+            )
+            settings = dict(self.db.cursor.fetchall())
+            
+            # Populate current_settings with values from the database or defaults
+            self.current_settings = {
+                'THEME': settings.get('THEME', THEME),
+                'GLOBAL_FONT_FAMILY': settings.get('GLOBAL_FONT_FAMILY', GLOBAL_FONT_FAMILY),
+                'GLOBAL_FONT_SIZE': int(settings.get('GLOBAL_FONT_SIZE', GLOBAL_FONT_SIZE)),
+                'NOTES_FONT_FAMILY': settings.get('NOTES_FONT_FAMILY', NOTES_FONT_FAMILY),
+                'NOTES_FONT_SIZE': int(settings.get('NOTES_FONT_SIZE', NOTES_FONT_SIZE)),
+                'DOC_FONT': settings.get('DOC_FONT', DOC_FONT),
+                'H1_SIZE': int(settings.get('H1_SIZE', H1_SIZE)),
+                'H2_SIZE': int(settings.get('H2_SIZE', H2_SIZE)),
+                'H3_SIZE': int(settings.get('H3_SIZE', H3_SIZE)),
+                'H4_SIZE': int(settings.get('H4_SIZE', H4_SIZE)),
+                'P_SIZE': int(settings.get('P_SIZE', P_SIZE)),
+                'INDENT_SIZE': float(settings.get('INDENT_SIZE', INDENT_SIZE)),
+                'TIMER_ENABLED': settings.get('TIMER_ENABLED', 'false').lower() == 'true',
+                'MIN_TIME_IN_MS_THRESHOLD': float(settings.get('MIN_TIME_IN_MS_THRESHOLD', MIN_TIME_IN_MS_THRESHOLD)),
+                'MAX_TIME_IN_MS_THRESHOLD': float(settings.get('MAX_TIME_IN_MS_THRESHOLD', MAX_TIME_IN_MS_THRESHOLD))
+            }
+        except Exception as e:
+            print(f"Error loading initial settings: {e}")
+            # Fallback to defaults from config.py if database access fails
+            self.current_settings = {
+                'THEME': THEME,
+                'GLOBAL_FONT_FAMILY': GLOBAL_FONT_FAMILY,
+                'GLOBAL_FONT_SIZE': GLOBAL_FONT_SIZE,
+                'NOTES_FONT_FAMILY': NOTES_FONT_FAMILY,
+                'NOTES_FONT_SIZE': NOTES_FONT_SIZE,
+                'DOC_FONT': DOC_FONT,
+                'H1_SIZE': H1_SIZE,
+                'H2_SIZE': H2_SIZE,
+                'H3_SIZE': H3_SIZE,
+                'H4_SIZE': H4_SIZE,
+                'P_SIZE': P_SIZE,
+                'INDENT_SIZE': INDENT_SIZE,
+                'TIMER_ENABLED': TIMER_ENABLED,
+                'MIN_TIME_IN_MS_THRESHOLD': MIN_TIME_IN_MS_THRESHOLD,
+                'MAX_TIME_IN_MS_THRESHOLD': MAX_TIME_IN_MS_THRESHOLD
+            }
 
     def update_title(self):
         """Update the title bar with version, database name, and record count."""
@@ -788,7 +856,11 @@ class OutLineEditorApp:
         ttk.Label(self.editor_frame, text="Questions Notes and Details", bootstyle="info").grid(
             row=2, column=0, sticky="w", padx=label_padx, pady=label_pady
         )
-        self.questions_text = tk.Text(self.editor_frame, height=15, font=NOTES_FONT)
+        self.questions_text = tk.Text(
+            self.editor_frame,
+            height=15,
+            font=(NOTES_FONT_FAMILY, NOTES_FONT_SIZE)
+        )
         self.questions_text.grid(row=3, column=0, sticky="nswe", pady=section_pady)
         
         # Create and bind the notes context menu
